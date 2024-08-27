@@ -39,6 +39,7 @@
 			<Add option="-Wall" />
 		</Compiler>
 		<Unit filename="asdasdasdasd.jpeg" />
+		<Unit filename="difference.fsh" />
 		<Unit filename="fragment.fsh" />
 		<Unit filename="glad.c">
 			<Option compilerVar="CC" />
@@ -50,6 +51,7 @@
 		<Unit filename="imgui_tables.cpp" />
 		<Unit filename="imgui_widgets.cpp" />
 		<Unit filename="main.cpp" />
+		<Unit filename="target.jpg" />
 		<Unit filename="vertex.vsh" />
 		<Extensions />
 	</Project>
