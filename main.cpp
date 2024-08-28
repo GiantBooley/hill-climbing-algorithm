@@ -286,11 +286,11 @@ void randomlyTransformSprite(Sprite* sprite) {
 	switch (rand() % 6) {
 	case 0:
 		sprite->x = add ? clamp(sprite->x + r * 50.f - 25.f, 0.f, (float)WIDTH) : (r * (float)WIDTH);
-		sprite->y = add ? clamp(sprite->y + r * 50.f - 25.f, 0.f, (float)HEIGHT) : (r * (float)HEIGHT);
+		sprite->y = add ? clamp(sprite->y + r2 * 50.f - 25.f, 0.f, (float)HEIGHT) : (r2 * (float)HEIGHT);
 		break;
 	case 1:
 		sprite->width = add ? max(sprite->width + r * 30.f - 15.f, 10.f) : (r * 90.f + 10.f);
-		sprite->height = add ? max(sprite->height + r2 * 30.f - 15.f, 10.f) : (r * 90.f + 10.f);
+		sprite->height = add ? max(sprite->height + r2 * 30.f - 15.f, 10.f) : (r2 * 90.f + 10.f);
 		break;
 	case 2:
 		sprite->rot = add ? sprite->rot + r * 0.2f - 0.1f : r * 6.28f; //randFloat() * 0.2f - 0.1f;
@@ -310,7 +310,7 @@ float getAabbArea(float* aabb) {
 	return abs((aabb[1] - aabb[0]) * (aabb[3] - aabb[2]));
 }
 bool save = false;
-double getAverageDifference(int x, int y, int w, int h) {
+double getAverageBufferColor(int x, int y, int w, int h, int step) {
 	GLsizei stride = w * 3;
 	GLsizei bufferSize = stride * h;
 
@@ -320,7 +320,6 @@ double getAverageDifference(int x, int y, int w, int h) {
 	glReadnPixels(x, y, w, h, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
 
 	double average = 0.;
-	const static int step = 3;
 	for (int ax = 0; ax < w; ax += step) {
 		for (int ay = 0; ay < h; ay += step) {
 			int n = 3 * (ay * w + ax);
@@ -393,7 +392,7 @@ int main(void) {
 	unsigned int differenceShaderAabbLocation = glGetUniformLocation(differenceShader.ID, "aabb");
 
 	Texture skateboardTexture{"sprite.png"};
-	Texture targetTexture{"target.jpg"};
+	Texture targetTexture{"target.png"};
 
 	WIDTH = targetTexture.width;
 	HEIGHT = targetTexture.height;
@@ -428,7 +427,7 @@ int main(void) {
 	int frameCount = 0;
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
-	for (int i = 0; i < 1; i++) {
+	for (int i = 0; i < 100; i++) {
 		sprites.push_back({randFloat() * (float)WIDTH, randFloat() * (float)HEIGHT, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 3.f, randFloat(), randFloat() * 3.f, randFloat() * 3.f});
 	}
 
@@ -447,7 +446,7 @@ int main(void) {
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
 		int hm = sprites.size();//howmany
-		Sprite* current = &sprites.at(randIntRange(max(0, hm - 10), hm));
+		Sprite* current = &sprites.at(randIntRange(0, hm));//&sprites.at(randIntRange(max(0, hm - 10), hm));
 		Sprite after = *current;
 		randomlyTransformSprite(&after);
 		float* aabbBefore = getSpriteBoundingBox(current);
@@ -502,7 +501,7 @@ int main(void) {
 		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-		double averageDifferenceBefore = getAverageDifference(0, 0, w, h);
+		double averageDifferenceBefore = getAverageBufferColor(0, 0, w, h, 3);
 
 
 		Sprite before = *current;
@@ -538,7 +537,7 @@ int main(void) {
 		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-		double averageDifferenceAfter = getAverageDifference(0, 0, w, h);
+		double averageDifferenceAfter = getAverageBufferColor(0, 0, w, h, 3);
 
 		if (averageDifferenceAfter > averageDifferenceBefore && !ignoreDifference) {
 			*current = before;
@@ -552,6 +551,7 @@ int main(void) {
 
 		glBindFramebuffer(GL_FRAMEBUFFER, showDifference ? boundingBoxBuffer.framebuffer : 0);
 		glViewport(0, 0, WIDTH, HEIGHT);
+		double difference = -1.;
 		if (showDifference) {
 			boundingBoxBuffer.resize(WIDTH, HEIGHT);
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -581,6 +581,7 @@ int main(void) {
 			float uv[4] = {0.f, 1.f, 0.f, 1.f};
 			glUniform1fv(differenceShaderAabbLocation, 4, uv);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+			difference = getAverageBufferColor(0, 0, WIDTH, HEIGHT, 4);
 		} else {
 			glClear(GL_COLOR_BUFFER_BIT);
 
@@ -624,10 +625,9 @@ int main(void) {
 		ImGui::SameLine();
 		ImGui::SliderInt("howmany", &howmany, 1, 100);
 		if (ImGui::Button("show difference")) showDifference = !showDifference;
-		ImGui::Text("average difference: %f", (float)averageDifferenceAfter);
+		ImGui::Text("average difference: %f", (float)difference);
 		iterations++;
 		ImGui::Text("iters: %d", iterations);
-		ImGui::Text("wh %d %d", w, h);
 		if (ImGui::Button("save")) save = true;
 		ImGui::Checkbox("ignore difference", &ignoreDifference);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
