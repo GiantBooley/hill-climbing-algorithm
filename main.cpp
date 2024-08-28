@@ -24,6 +24,13 @@ float randFloat() {
 	return (float)rand() / static_cast<float>(RAND_MAX);
 }
 
+float lerp(float a, float b, float t) {
+	return (b - a) * t + a;
+}
+int randIntRange(int mn, int mx) {// excluding end
+	return rand() % (mx - mn) + mn;
+}
+
 class Texture {
 public:
 	int width, height, numChannels;
@@ -32,8 +39,11 @@ public:
 		stbi_set_flip_vertically_on_load(true);
 		glGenTextures(1, &id);
 		glBindTexture(GL_TEXTURE_2D, id);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		float borderColor[4] = {0.f, 0.f, 0.f, 1.f};
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR_NV, borderColor);
+
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER_NV);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER_NV);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -41,7 +51,7 @@ public:
 		unsigned char *data = stbi_load(path, &width, &height, &numChannels, 0);
 		cout << "tex has " << numChannels << " color channels" << endl;
 		if (data) {
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+			glTexImage2D(GL_TEXTURE_2D, 0, numChannels == 3 ? GL_RGB : GL_RGBA, width, height, 0, numChannels == 3 ? GL_RGB : GL_RGBA, GL_UNSIGNED_BYTE, data);
 		} else {
 			cout << "[ERROR] failed to load \"" << path << "\"" << endl;
 		}
@@ -179,11 +189,10 @@ public:
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
 };
-int width = 640, height = 480;
+int WIDTH, HEIGHT;
 void framebuffer_size_callback(GLFWwindow* window, int w, int h) {
-	width = w;
-	height = h;
-	glViewport(0, 0, width, height);
+	WIDTH = w;
+	HEIGHT = h;
 }
 
 float vertices[] = {
@@ -228,7 +237,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	}
 };
 struct Sprite {
-	float x, y, width, height, rot; // x y center
+	float x, y, width, height, rot, r, g, b; // x y center
 };
 glm::mat4 getSpriteModelMat(Sprite* sprite) {
 	glm::mat4 model = glm::mat4(1.f);
@@ -236,9 +245,6 @@ glm::mat4 getSpriteModelMat(Sprite* sprite) {
 	model = glm::rotate(model, sprite->rot, glm::vec3(0.f, 0.f, -1.f));
 	model = glm::scale(model, glm::vec3(sprite->width, sprite->height, 1.f));
 	return model;
-}
-float lerp(float a, float b, float t) {
-	return (b - a) * t + a;
 }
 float* getSpriteBoundingBox(Sprite* sprite) {
 	glm::vec4 points[4] = {
@@ -267,36 +273,68 @@ float* getDoubleBoundingBoxBoundingBox(float* aabb1, float* aabb2) {
 	aabb[3] = max(aabb1[3], aabb2[3]);
 	return aabb;
 }
+bool aabbIntersect(float* a, float* b) {
+	return a[1] > b[0] && a[0] < b[1] && a[3] > b[2] && a[2] < b[3];
+}
+float clamp(float a, float lo, float hi) {
+	return min(max(a, lo), hi);
+}
 void randomlyTransformSprite(Sprite* sprite) {
-	sprite->x += randFloat() * 0.2f - 0.1f;
-	sprite->y += randFloat() * 0.2f - 0.1f;
-	sprite->width += randFloat() * 0.2f - 0.1f;
-	sprite->height += randFloat() * 0.2f - 0.1f;
-	sprite->rot += randFloat() * 0.2f - 0.1f;
+	bool add = rand() % 2;
+	float r = randFloat();
+	float r2 = randFloat();
+	switch (rand() % 6) {
+	case 0:
+		sprite->x = add ? clamp(sprite->x + r * 50.f - 25.f, 0.f, (float)WIDTH) : (r * (float)WIDTH);
+		sprite->y = add ? clamp(sprite->y + r * 50.f - 25.f, 0.f, (float)HEIGHT) : (r * (float)HEIGHT);
+		break;
+	case 1:
+		sprite->width = add ? max(sprite->width + r * 30.f - 15.f, 10.f) : (r * 90.f + 10.f);
+		sprite->height = add ? max(sprite->height + r2 * 30.f - 15.f, 10.f) : (r * 90.f + 10.f);
+		break;
+	case 2:
+		sprite->rot = add ? sprite->rot + r * 0.2f - 0.1f : r * 6.28f; //randFloat() * 0.2f - 0.1f;
+		break;
+	case 3:
+		sprite->r = r * 3.f;
+		break;
+	case 4:
+		sprite->g = r * 3.f;
+		break;
+	case 5:
+		sprite->b = r * 3.f;
+		break;
+	}
 }
 float getAabbArea(float* aabb) {
 	return abs((aabb[1] - aabb[0]) * (aabb[3] - aabb[2]));
 }
 bool save = false;
-double getAverageDifference(float x, float y, float w, float h) {
+double getAverageDifference(int x, int y, int w, int h) {
 	GLsizei stride = w * 3;
 	GLsizei bufferSize = stride * h;
 
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	glReadBuffer(GL_BACK);
 	stbi_flip_vertically_on_write(true);
 	unsigned char* bufferData = (unsigned char*)malloc(sizeof(unsigned char) * bufferSize);
 	glReadnPixels(x, y, w, h, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
 
 	double average = 0.;
-	for (int i = 0; i < bufferSize; i += 3) { // 256*3
-		average += (double)bufferData[i] / 768. + (double)bufferData[i + 1] / 768. + (double)bufferData[i + 2] / 768.;
+	const static int step = 3;
+	for (int ax = 0; ax < w; ax += step) {
+		for (int ay = 0; ay < h; ay += step) {
+			int n = 3 * (ay * w + ax);
+			average += (double)bufferData[n] + (double)bufferData[n + 1] + (double)bufferData[n + 2];
+		}
 	}
-	average /= (double)bufferSize;
-	if (save) {
-		int write = stbi_write_png("difference.png", w, h, 3, bufferData, stride);
+	average /= (double)(w * h / (step * step) * 3 * 256);
+	/*if (save) {
+		glReadBuffer(GL_BACK);
+		stbi_flip_vertically_on_write(true);
+		glReadnPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
+		stbi_write_png("diff.png", w, h, 3, bufferData, stride);
 		save = false;
-	}
+	}*/
 	free(bufferData);
 	return average;
 }
@@ -337,11 +375,15 @@ int main(void) {
 	glViewport(0, 0, 640, 480);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 	glfwSwapInterval(0);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
 	Shader triangleShader{"vertex.vsh", "fragment.fsh"};
 	unsigned int triangleShaderModelLocation = glGetUniformLocation(triangleShader.ID, "modelMat");
 	unsigned int triangleShaderProjLocation = glGetUniformLocation(triangleShader.ID, "projMat");
 	unsigned int triangleShaderTexLocation = glGetUniformLocation(triangleShader.ID, "tex");
+	unsigned int triangleShaderColLocation = glGetUniformLocation(triangleShader.ID, "col");
 
 	Shader differenceShader{"vertex.vsh", "difference.fsh"};
 	unsigned int differenceShaderModelLocation = glGetUniformLocation(differenceShader.ID, "modelMat");
@@ -350,11 +392,15 @@ int main(void) {
 	unsigned int differenceShaderTex2Location = glGetUniformLocation(differenceShader.ID, "tex2");
 	unsigned int differenceShaderAabbLocation = glGetUniformLocation(differenceShader.ID, "aabb");
 
-	Texture skateboardTexture{"asdasdasdasd.jpeg"};
+	Texture skateboardTexture{"sprite.png"};
 	Texture targetTexture{"target.jpg"};
 
-	FrameBuffer boundingBoxBuffer{640, 480};
-	FrameBuffer differenceBuffer{640, 480};
+	WIDTH = targetTexture.width;
+	HEIGHT = targetTexture.height;
+	glfwSetWindowSize(window, WIDTH, HEIGHT);
+
+	FrameBuffer boundingBoxBuffer{WIDTH, HEIGHT};
+	FrameBuffer differenceBuffer{WIDTH, HEIGHT};
 
 	//buffers
 	unsigned int VBO, EBO, VAO;
@@ -382,7 +428,9 @@ int main(void) {
 	int frameCount = 0;
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
-	sprites.push_back({randFloat() * 640.f, randFloat() * 480.f, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 2.f});
+	for (int i = 0; i < 1; i++) {
+		sprites.push_back({randFloat() * (float)WIDTH, randFloat() * (float)HEIGHT, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 3.f, randFloat(), randFloat() * 3.f, randFloat() * 3.f});
+	}
 
 	glClearColor(0.f, 0.f, 0.f, 1.f);
 
@@ -394,19 +442,22 @@ int main(void) {
 	glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
 
 	glBindVertexArray(VAO);
+	int iterations = 0;
+	bool ignoreDifference = false;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
-		Sprite* last = &sprites.at(sprites.size() - 1);
-		Sprite after = *last;
+		int hm = sprites.size();//howmany
+		Sprite* current = &sprites.at(randIntRange(max(0, hm - 10), hm));
+		Sprite after = *current;
 		randomlyTransformSprite(&after);
-		float* aabbBefore = getSpriteBoundingBox(last);
+		float* aabbBefore = getSpriteBoundingBox(current);
 		float* aabbAfter = getSpriteBoundingBox(&after);
 		float* differenceAabb = getDoubleBoundingBoxBoundingBox(aabbBefore, aabbAfter);
 		float* screenDifferenceAabb = (float*)malloc(sizeof(float) * 4);
-		screenDifferenceAabb[0] = differenceAabb[0] / 640.f;
-		screenDifferenceAabb[1] = differenceAabb[1] / 640.f;
-		screenDifferenceAabb[2] = differenceAabb[2] / 480.f;
-		screenDifferenceAabb[3] = differenceAabb[3] / 480.f;
+		screenDifferenceAabb[0] = differenceAabb[0] / (float)WIDTH;
+		screenDifferenceAabb[1] = differenceAabb[1] / (float)WIDTH;
+		screenDifferenceAabb[2] = differenceAabb[2] / (float)HEIGHT;
+		screenDifferenceAabb[3] = differenceAabb[3] / (float)HEIGHT;
 
 		glm::mat4 fullscreenProj = glm::ortho(-0.5f, 0.5f, -0.5f, 0.5f, -1.f, 1.f);
 		glm::mat4 aabbProj = glm::ortho(differenceAabb[0], differenceAabb[1], differenceAabb[2], differenceAabb[3], -1.f, 1.f);
@@ -429,8 +480,11 @@ int main(void) {
 		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
 		glUniform1i(triangleShaderTexLocation, 0);
 		for (Sprite& sprite : sprites) {
+			float* aabb = getSpriteBoundingBox(&sprite);
+			if (!aabbIntersect(aabb, differenceAabb)) continue;
 			glm::mat4 model = getSpriteModelMat(&sprite);
 			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
+			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 
@@ -451,8 +505,8 @@ int main(void) {
 		double averageDifferenceBefore = getAverageDifference(0, 0, w, h);
 
 
-		Sprite before = *last;
-		*last = after;
+		Sprite before = *current;
+		*current = after;
 		// render after transform===================================================================================================================
 		glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -462,8 +516,11 @@ int main(void) {
 		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
 		glUniform1i(triangleShaderTexLocation, 0);
 		for (Sprite& sprite : sprites) {
+			float* aabb = getSpriteBoundingBox(&sprite);
+			if (!aabbIntersect(aabb, differenceAabb)) continue;
 			glm::mat4 model = getSpriteModelMat(&sprite);
 			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
+			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 
@@ -483,9 +540,9 @@ int main(void) {
 
 		double averageDifferenceAfter = getAverageDifference(0, 0, w, h);
 
-		if (averageDifferenceAfter <= averageDifferenceBefore) {
-			*last = before;
-			//averageDifferenceAfter = averageDifferenceBefore;
+		if (averageDifferenceAfter > averageDifferenceBefore && !ignoreDifference) {
+			*current = before;
+			averageDifferenceAfter = averageDifferenceBefore;
 		}
 
 		//init imgui frame render frame==================================================================
@@ -494,20 +551,21 @@ int main(void) {
 		ImGui::NewFrame();
 
 		glBindFramebuffer(GL_FRAMEBUFFER, showDifference ? boundingBoxBuffer.framebuffer : 0);
-		glViewport(0, 0, 640, 480);
+		glViewport(0, 0, WIDTH, HEIGHT);
 		if (showDifference) {
-			boundingBoxBuffer.resize(640, 480);
+			boundingBoxBuffer.resize(WIDTH, HEIGHT);
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			triangleShader.use();
 
-			glm::mat4 proj = glm::ortho(0.f, 640.f, 0.f, 480.f, -1.f, 1.f);
+			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
 
 			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
 			glUniform1i(triangleShaderTexLocation, 0);
 			for (Sprite& sprite : sprites) {
 				glm::mat4 model = getSpriteModelMat(&sprite);
 				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
+				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
 				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 			}
 
@@ -528,14 +586,28 @@ int main(void) {
 
 			triangleShader.use();
 
-			glm::mat4 proj = glm::ortho(0.f, 640.f, 0.f, 480.f, -1.f, 1.f);
+			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
 
 			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
 			glUniform1i(triangleShaderTexLocation, 0);
 			for (Sprite& sprite : sprites) {
 				glm::mat4 model = getSpriteModelMat(&sprite);
 				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
+				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
 				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+			}
+			if (save) {
+				GLsizei stride = WIDTH * 3;
+				GLsizei bufferSize = stride * HEIGHT;
+
+				glPixelStorei(GL_PACK_ALIGNMENT, 1);
+				glReadBuffer(GL_BACK);
+				stbi_flip_vertically_on_write(true);
+				unsigned char* bufferData = (unsigned char*)malloc(sizeof(unsigned char) * bufferSize);
+				glReadnPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
+				stbi_write_png("output.png", WIDTH, HEIGHT, 3, bufferData, stride);
+				save = false;
+				free(bufferData);
 			}
 		}
 
@@ -543,14 +615,21 @@ int main(void) {
 		ImGui::Begin("Reduction");
 		ImGui::Text("%d FPS", fps);
 		ImGui::Text("sprites: %d", (int)sprites.size());
+		static int howmany = 1;
 		if (ImGui::Button("add")) {
-			sprites.push_back({randFloat() * 640.f, randFloat() * 480.f, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 2.f});
+			for (int i = 0; i < howmany; i++) {
+				sprites.push_back({randFloat() * (float)WIDTH, randFloat() * (float)HEIGHT, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 3.f, randFloat(), randFloat() * 3.f, randFloat() * 3.f});
+			}
 		}
+		ImGui::SameLine();
+		ImGui::SliderInt("howmany", &howmany, 1, 100);
 		if (ImGui::Button("show difference")) showDifference = !showDifference;
-		ImGui::Text("average differenceb: %f", (float)averageDifferenceBefore);
-		ImGui::Text("average differencea: %f", (float)averageDifferenceAfter);
+		ImGui::Text("average difference: %f", (float)averageDifferenceAfter);
+		iterations++;
+		ImGui::Text("iters: %d", iterations);
 		ImGui::Text("wh %d %d", w, h);
 		if (ImGui::Button("save")) save = true;
+		ImGui::Checkbox("ignore difference", &ignoreDifference);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::End();
 
