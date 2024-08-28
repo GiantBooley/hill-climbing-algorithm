@@ -261,10 +261,10 @@ float* getSpriteBoundingBox(Sprite* sprite) {
 }
 float* getDoubleBoundingBoxBoundingBox(float* aabb1, float* aabb2) {
 	float* aabb = (float*)malloc(sizeof(float) * 4);
-	aabb[0] = min(min(aabb1[0], aabb2[0]), min(aabb1[1], aabb2[1]));
-	aabb[1] = max(max(aabb1[0], aabb2[0]), max(aabb1[1], aabb2[1]));
-	aabb[2] = min(min(aabb1[2], aabb2[2]), min(aabb1[3], aabb2[3]));
-	aabb[3] = max(max(aabb1[2], aabb2[2]), max(aabb1[3], aabb2[3]));
+	aabb[0] = min(aabb1[0], aabb2[0]);
+	aabb[1] = max(aabb1[1], aabb2[1]);
+	aabb[2] = min(aabb1[2], aabb2[2]);
+	aabb[3] = max(aabb1[3], aabb2[3]);
 	return aabb;
 }
 void randomlyTransformSprite(Sprite* sprite) {
@@ -296,7 +296,6 @@ double getAverageDifference(float x, float y, float w, float h) {
 	if (save) {
 		int write = stbi_write_png("difference.png", w, h, 3, bufferData, stride);
 		save = false;
-		cout << "save=flasel" << endl;
 	}
 	free(bufferData);
 	return average;
@@ -349,6 +348,7 @@ int main(void) {
 	unsigned int differenceShaderProjLocation = glGetUniformLocation(differenceShader.ID, "projMat");
 	unsigned int differenceShaderTex1Location = glGetUniformLocation(differenceShader.ID, "tex1");
 	unsigned int differenceShaderTex2Location = glGetUniformLocation(differenceShader.ID, "tex2");
+	unsigned int differenceShaderAabbLocation = glGetUniformLocation(differenceShader.ID, "aabb");
 
 	Texture skateboardTexture{"asdasdasdasd.jpeg"};
 	Texture targetTexture{"target.jpg"};
@@ -402,14 +402,18 @@ int main(void) {
 		float* aabbBefore = getSpriteBoundingBox(last);
 		float* aabbAfter = getSpriteBoundingBox(&after);
 		float* differenceAabb = getDoubleBoundingBoxBoundingBox(aabbBefore, aabbAfter);
-
+		float* screenDifferenceAabb = (float*)malloc(sizeof(float) * 4);
+		screenDifferenceAabb[0] = differenceAabb[0] / 640.f;
+		screenDifferenceAabb[1] = differenceAabb[1] / 640.f;
+		screenDifferenceAabb[2] = differenceAabb[2] / 480.f;
+		screenDifferenceAabb[3] = differenceAabb[3] / 480.f;
 
 		glm::mat4 fullscreenProj = glm::ortho(-0.5f, 0.5f, -0.5f, 0.5f, -1.f, 1.f);
 		glm::mat4 aabbProj = glm::ortho(differenceAabb[0], differenceAabb[1], differenceAabb[2], differenceAabb[3], -1.f, 1.f);
 		glm::mat4 identity = glm::mat4(1.f);
 
-		int w = (int)(differenceAabb[2] - differenceAabb[0]);
-		int h = (int)(differenceAabb[3] - differenceAabb[1]);
+		int w = (int)(differenceAabb[1] - differenceAabb[0]);
+		int h = (int)(differenceAabb[3] - differenceAabb[2]);
 
 		//resize
 		boundingBoxBuffer.resize(w, h);
@@ -437,8 +441,11 @@ int main(void) {
 
 		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
 		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
 		glUniform1i(differenceShaderTex1Location, 1);
 		glUniform1i(differenceShaderTex2Location, 2);
+		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
 		double averageDifferenceBefore = getAverageDifference(0, 0, w, h);
@@ -467,8 +474,11 @@ int main(void) {
 
 		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
 		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
 		glUniform1i(differenceShaderTex1Location, 1);
 		glUniform1i(differenceShaderTex2Location, 2);
+		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
 		double averageDifferenceAfter = getAverageDifference(0, 0, w, h);
@@ -510,6 +520,8 @@ int main(void) {
 			glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
 			glUniform1i(differenceShaderTex1Location, 1);
 			glUniform1i(differenceShaderTex2Location, 2);
+			float uv[4] = {0.f, 1.f, 0.f, 1.f};
+			glUniform1fv(differenceShaderAabbLocation, 4, uv);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		} else {
 			glClear(GL_COLOR_BUFFER_BIT);
@@ -537,6 +549,7 @@ int main(void) {
 		if (ImGui::Button("show difference")) showDifference = !showDifference;
 		ImGui::Text("average differenceb: %f", (float)averageDifferenceBefore);
 		ImGui::Text("average differencea: %f", (float)averageDifferenceAfter);
+		ImGui::Text("wh %d %d", w, h);
 		if (ImGui::Button("save")) save = true;
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::End();

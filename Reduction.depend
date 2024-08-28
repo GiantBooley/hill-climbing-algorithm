@@ -158,7 +158,7 @@
 	<stdint.h>
 	"imstb_textedit.h"
 
-1724542562 source:d:\html\hill-climbing-algorithm\main.cpp
+1724803969 source:d:\html\hill-climbing-algorithm\main.cpp
 	<iostream>
 	<fstream>
 	<string>
@@ -167,6 +167,7 @@
 	<glad/glad.h>
 	<GLFW/glfw3.h>
 	<stb/stb_image.h>
+	<stb/stb_image_write.h>
 	<glm/glm.hpp>
 	<glm/gtc/matrix_transform.hpp>
 	<glm/gtc/type_ptr.hpp>
