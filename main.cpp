@@ -238,6 +238,29 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 };
 struct Sprite {
 	float x, y, width, height, rot, r, g, b; // x y center
+	int texId;
+	Sprite(float x_, float y_, float width_, float height_, float rot_, float r_, float g_, float b_) {
+		x = x_;
+		y = y_;
+		width = width_;
+		height = height_;
+		rot = rot_;
+		r = r_;
+		g = g_;
+		b = b_;
+		texId = rand();
+	}
+	Sprite() {
+		x = randFloat() * (float)WIDTH;
+		y = randFloat() * (float)HEIGHT;
+		width = randFloat() * 100.f;
+		height = randFloat() * 100.f;
+		rot = randFloat() * 3.14159f * 2.f;
+		r = randFloat() * 3.f;
+		g = randFloat() * 3.f;
+		b = randFloat() * 3.f;
+		texId = rand();
+	}
 };
 glm::mat4 getSpriteModelMat(Sprite* sprite) {
 	glm::mat4 model = glm::mat4(1.f);
@@ -283,14 +306,15 @@ void randomlyTransformSprite(Sprite* sprite) {
 	bool add = rand() % 2;
 	float r = randFloat();
 	float r2 = randFloat();
-	switch (rand() % 6) {
+	const static float mwh = (float)max(WIDTH, HEIGHT);
+	switch (rand() % 7) {
 	case 0:
 		sprite->x = add ? clamp(sprite->x + r * 50.f - 25.f, 0.f, (float)WIDTH) : (r * (float)WIDTH);
 		sprite->y = add ? clamp(sprite->y + r2 * 50.f - 25.f, 0.f, (float)HEIGHT) : (r2 * (float)HEIGHT);
 		break;
 	case 1:
-		sprite->width = add ? max(sprite->width + r * 30.f - 15.f, 10.f) : (r * 90.f + 10.f);
-		sprite->height = add ? max(sprite->height + r2 * 30.f - 15.f, 10.f) : (r2 * 90.f + 10.f);
+		sprite->width = add ? clamp(sprite->width + r * 30.f - 15.f, 10.f, mwh) : (r * 90.f + 10.f);
+		sprite->height = add ? clamp(sprite->height + r2 * 30.f - 15.f, 10.f, mwh) : (r2 * 90.f + 10.f);
 		break;
 	case 2:
 		sprite->rot = add ? sprite->rot + r * 0.2f - 0.1f : r * 6.28f; //randFloat() * 0.2f - 0.1f;
@@ -303,6 +327,9 @@ void randomlyTransformSprite(Sprite* sprite) {
 		break;
 	case 5:
 		sprite->b = r * 3.f;
+		break;
+	case 6:
+		sprite->texId = rand();
 		break;
 	}
 }
@@ -391,7 +418,32 @@ int main(void) {
 	unsigned int differenceShaderTex2Location = glGetUniformLocation(differenceShader.ID, "tex2");
 	unsigned int differenceShaderAabbLocation = glGetUniformLocation(differenceShader.ID, "aabb");
 
-	Texture skateboardTexture{"sprite.png"};
+	Texture spriteTextures[] = {
+		{"807/DSC00148.jpg"},
+		{"807/DSC00149.jpg"},
+		{"807/DSC00150.jpg"},
+		{"807/DSC00151.jpg"},
+		{"807/DSC00152.jpg"},
+		{"807/DSC00153.jpg"},
+		{"807/DSC00154.jpg"},
+		{"807/DSC00155.jpg"},
+		{"807/DSC00156.jpg"},
+		{"807/DSC00157.jpg"},
+		{"807/DSC00158.jpg"},
+		{"807/DSC00159.jpg"},
+		{"807/DSC00160.jpg"},
+		{"807/DSC00161.jpg"},
+		{"807/DSC00163.jpg"},
+		{"807/DSC00164.jpg"},
+		{"807/DSC00166.jpg"},
+		{"807/DSC00167.jpg"},
+		{"807/DSC00168.jpg"},
+		{"807/DSC00169.jpg"},
+		{"807/DSC00174.jpg"},
+		{"807/DSC00175.jpg"},
+		{"807/DSC00176.jpg"}
+	};
+	int howManySpriteTextures = sizeof(spriteTextures) / sizeof(Texture);
 	Texture targetTexture{"target.png"};
 
 	WIDTH = targetTexture.width;
@@ -428,17 +480,19 @@ int main(void) {
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
 	for (int i = 0; i < 100; i++) {
-		sprites.push_back({randFloat() * (float)WIDTH, randFloat() * (float)HEIGHT, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 3.f, randFloat(), randFloat() * 3.f, randFloat() * 3.f});
+		sprites.push_back({});
 	}
 
 	glClearColor(0.f, 0.f, 0.f, 1.f);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, skateboardTexture.id);
-	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, targetTexture.id);
-	glActiveTexture(GL_TEXTURE2);
+	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
+	for (int i = 0; i < howManySpriteTextures; i++) {
+		glActiveTexture(GL_TEXTURE2 + i);
+		glBindTexture(GL_TEXTURE_2D, spriteTextures[i].id);
+	}
 
 	glBindVertexArray(VAO);
 	int iterations = 0;
@@ -466,6 +520,7 @@ int main(void) {
 		int h = (int)(differenceAabb[3] - differenceAabb[2]);
 
 		//resize
+		glActiveTexture(GL_TEXTURE1);
 		boundingBoxBuffer.resize(w, h);
 		differenceBuffer.resize(w, h);
 		glViewport(0, 0, w, h);
@@ -477,13 +532,13 @@ int main(void) {
 		triangleShader.use();
 
 		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
-		glUniform1i(triangleShaderTexLocation, 0);
 		for (Sprite& sprite : sprites) {
 			float* aabb = getSpriteBoundingBox(&sprite);
 			if (!aabbIntersect(aabb, differenceAabb)) continue;
 			glm::mat4 model = getSpriteModelMat(&sprite);
 			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
 			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
+			glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 
@@ -494,10 +549,10 @@ int main(void) {
 
 		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
 		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-		glActiveTexture(GL_TEXTURE2);
+		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
-		glUniform1i(differenceShaderTex1Location, 1);
-		glUniform1i(differenceShaderTex2Location, 2);
+		glUniform1i(differenceShaderTex1Location, 0);
+		glUniform1i(differenceShaderTex2Location, 1);
 		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
@@ -513,13 +568,13 @@ int main(void) {
 		triangleShader.use();
 
 		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
-		glUniform1i(triangleShaderTexLocation, 0);
 		for (Sprite& sprite : sprites) {
 			float* aabb = getSpriteBoundingBox(&sprite);
 			if (!aabbIntersect(aabb, differenceAabb)) continue;
 			glm::mat4 model = getSpriteModelMat(&sprite);
 			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
 			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
+			glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 
@@ -530,10 +585,10 @@ int main(void) {
 
 		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
 		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-		glActiveTexture(GL_TEXTURE2);
+		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
-		glUniform1i(differenceShaderTex1Location, 1);
-		glUniform1i(differenceShaderTex2Location, 2);
+		glUniform1i(differenceShaderTex1Location, 0);
+		glUniform1i(differenceShaderTex2Location, 1);
 		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
@@ -561,11 +616,11 @@ int main(void) {
 			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
 
 			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
-			glUniform1i(triangleShaderTexLocation, 0);
 			for (Sprite& sprite : sprites) {
 				glm::mat4 model = getSpriteModelMat(&sprite);
 				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
 				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
+				glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
 				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 			}
 
@@ -576,8 +631,8 @@ int main(void) {
 
 			glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
 			glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-			glUniform1i(differenceShaderTex1Location, 1);
-			glUniform1i(differenceShaderTex2Location, 2);
+			glUniform1i(differenceShaderTex1Location, 0);
+			glUniform1i(differenceShaderTex2Location, 1);
 			float uv[4] = {0.f, 1.f, 0.f, 1.f};
 			glUniform1fv(differenceShaderAabbLocation, 4, uv);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -590,11 +645,11 @@ int main(void) {
 			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
 
 			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
-			glUniform1i(triangleShaderTexLocation, 0);
 			for (Sprite& sprite : sprites) {
 				glm::mat4 model = getSpriteModelMat(&sprite);
 				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
 				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
+				glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
 				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 			}
 			if (save) {
@@ -618,8 +673,9 @@ int main(void) {
 		ImGui::Text("sprites: %d", (int)sprites.size());
 		static int howmany = 1;
 		if (ImGui::Button("add")) {
+			sprites.reserve(howmany);
 			for (int i = 0; i < howmany; i++) {
-				sprites.push_back({randFloat() * (float)WIDTH, randFloat() * (float)HEIGHT, randFloat() * 100.f, randFloat() * 100.f, randFloat() * 3.14159f * 3.f, randFloat(), randFloat() * 3.f, randFloat() * 3.f});
+				sprites.push_back({});
 			}
 		}
 		ImGui::SameLine();
