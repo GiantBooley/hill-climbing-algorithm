@@ -127,16 +127,35 @@ public:
 	void use() {
 		glUseProgram(ID);
 	}
-
-	// uniform shortcuts
-	void setBool(const string &name, bool value) const {
-		glUniform1i(glGetUniformLocation(ID, name.c_str()), value);
+};
+class TriangleShader : public Shader {
+public:
+	unsigned int modelLocation, projLocation, texLocation, colLocation;
+	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
+		modelLocation = glGetUniformLocation(ID, "modelMat");
+		projLocation = glGetUniformLocation(ID, "projMat");
+		texLocation = glGetUniformLocation(ID, "tex");
+		colLocation = glGetUniformLocation(ID, "col");
 	}
-	void setInt(const string &name, int value) {
-		glUniform1i(glGetUniformLocation(ID, name.c_str()), value);
+};
+class DifferenceShader : public Shader {
+public:
+	unsigned int modelLocation, projLocation, tex1Location, tex2Location, aabbLocation;
+	DifferenceShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
+		modelLocation = glGetUniformLocation(ID, "modelMat");
+		projLocation = glGetUniformLocation(ID, "projMat");
+		tex1Location = glGetUniformLocation(ID, "tex1");
+		tex2Location = glGetUniformLocation(ID, "tex2");
+		aabbLocation = glGetUniformLocation(ID, "aabb");
 	}
-	void setFloat(const string &name, float value) {
-		glUniform1f(glGetUniformLocation(ID, name.c_str()), value);
+};
+class OutlineShader : public Shader {
+public:
+	unsigned int modelLocation, projLocation, colLocation;
+	OutlineShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
+		modelLocation = glGetUniformLocation(ID, "modelMat");
+		projLocation = glGetUniformLocation(ID, "projMat");
+		colLocation = glGetUniformLocation(ID, "col");
 	}
 };
 class FrameBuffer {
@@ -236,9 +255,14 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		if (key == GLFW_KEY_DOWN) controls.down = false;
 	}
 };
+float clamp(float a, float lo, float hi) {
+	return min(max(a, lo), hi);
+}
 struct Sprite {
 	float x, y, width, height, rot, r, g, b; // x y center
 	int texId;
+	double difference = -1.;
+	float* aabb;
 	Sprite(float x_, float y_, float width_, float height_, float rot_, float r_, float g_, float b_) {
 		x = x_;
 		y = y_;
@@ -249,6 +273,7 @@ struct Sprite {
 		g = g_;
 		b = b_;
 		texId = rand();
+		resetBoundingBox();
 	}
 	Sprite() {
 		x = randFloat() * (float)WIDTH;
@@ -260,34 +285,67 @@ struct Sprite {
 		g = randFloat() * 3.f;
 		b = randFloat() * 3.f;
 		texId = rand();
+		resetBoundingBox();
+	}
+	glm::mat4 getModelMat() {
+		glm::mat4 model = glm::mat4(1.f);
+		model = glm::translate(model, glm::vec3(x, y, 0.f));
+		model = glm::rotate(model, rot, glm::vec3(0.f, 0.f, -1.f));
+		model = glm::scale(model, glm::vec3(width, height, 1.f));
+		return model;
+	}
+	void resetBoundingBox() {
+		glm::vec4 points[4] = {
+			glm::vec4(vertices[0], vertices[1], 0.f, 1.f),
+			glm::vec4(vertices[4], vertices[5], 0.f, 1.f),
+			glm::vec4(vertices[8], vertices[9], 0.f, 1.f),
+			glm::vec4(vertices[12], vertices[13], 0.f, 1.f)
+		};
+		glm::mat4 focusModelMat = getModelMat();
+		for (int i = 0; i < 4; i++) {
+			points[i] = focusModelMat * points[i];
+		}
+		aabb = (float*)malloc(sizeof(float) * 4);
+		aabb[0] = min(min(points[0].x, points[1].x), min(points[2].x, points[3].x)); // minx
+		aabb[1] = max(max(points[0].x, points[1].x), max(points[2].x, points[3].x)); // maxx
+		aabb[2] = min(min(points[0].y, points[1].y), min(points[2].y, points[3].y)); // miny
+		aabb[3] = max(max(points[0].y, points[1].y), max(points[2].y, points[3].y)); // maxy
+	}
+	void randomlyTransform() {
+		bool add = rand() % 2;
+		float r = randFloat();
+		float r2 = randFloat();
+		const static float mwh = (float)max(WIDTH, HEIGHT);
+		switch (rand() % 7) {
+		case 0:
+			x = add ? clamp(x + r * 50.f - 25.f, 0.f, (float)WIDTH) : (r * (float)WIDTH);
+			y = add ? clamp(y + r2 * 50.f - 25.f, 0.f, (float)HEIGHT) : (r2 * (float)HEIGHT);
+			resetBoundingBox();
+			break;
+		case 1:
+			width = add ? clamp(width + r * 30.f - 15.f, 10.f, mwh) : (r * 90.f + 10.f);
+			height = add ? clamp(height + r2 * 30.f - 15.f, 10.f, mwh) : (r2 * 90.f + 10.f);
+			resetBoundingBox();
+			break;
+		case 2:
+			rot = add ? rot + r * 0.2f - 0.1f : r * 6.28f; //randFloat() * 0.2f - 0.1f;
+			resetBoundingBox();
+			break;
+		case 3:
+			r = r * 3.f;
+			break;
+		case 4:
+			g = r * 3.f;
+			break;
+		case 5:
+			b = r * 3.f;
+			break;
+		case 6:
+			texId = rand();
+			break;
+		}
 	}
 };
-glm::mat4 getSpriteModelMat(Sprite* sprite) {
-	glm::mat4 model = glm::mat4(1.f);
-	model = glm::translate(model, glm::vec3(sprite->x, sprite->y, 0.f));
-	model = glm::rotate(model, sprite->rot, glm::vec3(0.f, 0.f, -1.f));
-	model = glm::scale(model, glm::vec3(sprite->width, sprite->height, 1.f));
-	return model;
-}
-float* getSpriteBoundingBox(Sprite* sprite) {
-	glm::vec4 points[4] = {
-		glm::vec4(vertices[0], vertices[1], 0.f, 1.f),
-		glm::vec4(vertices[4], vertices[5], 0.f, 1.f),
-		glm::vec4(vertices[8], vertices[9], 0.f, 1.f),
-		glm::vec4(vertices[12], vertices[13], 0.f, 1.f)
-	};
-	glm::mat4 focusModelMat = getSpriteModelMat(sprite);
-	for (int i = 0; i < 4; i++) {
-		points[i] = focusModelMat * points[i];
-	}
-
-	float* aabb = (float*)malloc(sizeof(float) * 4);
-	aabb[0] = min(min(points[0].x, points[1].x), min(points[2].x, points[3].x)); // minx
-	aabb[1] = max(max(points[0].x, points[1].x), max(points[2].x, points[3].x)); // maxx
-	aabb[2] = min(min(points[0].y, points[1].y), min(points[2].y, points[3].y)); // miny
-	aabb[3] = max(max(points[0].y, points[1].y), max(points[2].y, points[3].y)); // maxy
-	return aabb;
-}
 float* getDoubleBoundingBoxBoundingBox(float* aabb1, float* aabb2) {
 	float* aabb = (float*)malloc(sizeof(float) * 4);
 	aabb[0] = min(aabb1[0], aabb2[0]);
@@ -298,40 +356,6 @@ float* getDoubleBoundingBoxBoundingBox(float* aabb1, float* aabb2) {
 }
 bool aabbIntersect(float* a, float* b) {
 	return a[1] > b[0] && a[0] < b[1] && a[3] > b[2] && a[2] < b[3];
-}
-float clamp(float a, float lo, float hi) {
-	return min(max(a, lo), hi);
-}
-void randomlyTransformSprite(Sprite* sprite) {
-	bool add = rand() % 2;
-	float r = randFloat();
-	float r2 = randFloat();
-	const static float mwh = (float)max(WIDTH, HEIGHT);
-	switch (rand() % 7) {
-	case 0:
-		sprite->x = add ? clamp(sprite->x + r * 50.f - 25.f, 0.f, (float)WIDTH) : (r * (float)WIDTH);
-		sprite->y = add ? clamp(sprite->y + r2 * 50.f - 25.f, 0.f, (float)HEIGHT) : (r2 * (float)HEIGHT);
-		break;
-	case 1:
-		sprite->width = add ? clamp(sprite->width + r * 30.f - 15.f, 10.f, mwh) : (r * 90.f + 10.f);
-		sprite->height = add ? clamp(sprite->height + r2 * 30.f - 15.f, 10.f, mwh) : (r2 * 90.f + 10.f);
-		break;
-	case 2:
-		sprite->rot = add ? sprite->rot + r * 0.2f - 0.1f : r * 6.28f; //randFloat() * 0.2f - 0.1f;
-		break;
-	case 3:
-		sprite->r = r * 3.f;
-		break;
-	case 4:
-		sprite->g = r * 3.f;
-		break;
-	case 5:
-		sprite->b = r * 3.f;
-		break;
-	case 6:
-		sprite->texId = rand();
-		break;
-	}
 }
 float getAabbArea(float* aabb) {
 	return abs((aabb[1] - aabb[0]) * (aabb[3] - aabb[2]));
@@ -365,6 +389,44 @@ double getAverageBufferColor(int x, int y, int w, int h, int step) {
 	return average;
 }
 
+vector<Sprite> sprites;
+
+void renderSprites(TriangleShader* triangleShader, float* aabb, int howManySpriteTextures, glm::mat4* aabbProj, int endI) {
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	triangleShader->use();
+
+	glUniformMatrix4fv(triangleShader->projLocation, 1, GL_FALSE, glm::value_ptr(*aabbProj));
+	int i = 0;
+	for (Sprite& sprite : sprites) {
+		if (i > endI && endI != -1) break;
+		i++;
+		if (aabb) {
+			if (!aabbIntersect(sprite.aabb, aabb)) continue;
+		}
+		glm::mat4 model = sprite.getModelMat();
+		glUniformMatrix4fv(triangleShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
+		glUniform3f(triangleShader->colLocation, sprite.r, sprite.g, sprite.b);
+		glUniform1i(triangleShader->texLocation, (sprite.texId % howManySpriteTextures) + 2);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	}
+}
+void renderDifference(DifferenceShader* differenceShader, unsigned int spritesTexture, float* screenSpaceDifferenceAabb) {
+	const static glm::mat4 identity = glm::mat4(1.f);
+	const static glm::mat4 fullscreenProj = glm::ortho(-0.5f, 0.5f, -0.5f, 0.5f, -1.f, 1.f);
+
+	glClear(GL_COLOR_BUFFER_BIT);
+	differenceShader->use();
+
+	glUniformMatrix4fv(differenceShader->projLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
+	glUniformMatrix4fv(differenceShader->modelLocation, 1, GL_FALSE, glm::value_ptr(identity));
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, spritesTexture);
+	glUniform1i(differenceShader->tex1Location, 0);
+	glUniform1i(differenceShader->tex2Location, 1);
+	glUniform1fv(differenceShader->aabbLocation, 4, screenSpaceDifferenceAabb);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
 int main(void) {
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -405,21 +467,14 @@ int main(void) {
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
-	Shader triangleShader{"vertex.vsh", "fragment.fsh"};
-	unsigned int triangleShaderModelLocation = glGetUniformLocation(triangleShader.ID, "modelMat");
-	unsigned int triangleShaderProjLocation = glGetUniformLocation(triangleShader.ID, "projMat");
-	unsigned int triangleShaderTexLocation = glGetUniformLocation(triangleShader.ID, "tex");
-	unsigned int triangleShaderColLocation = glGetUniformLocation(triangleShader.ID, "col");
-
-	Shader differenceShader{"vertex.vsh", "difference.fsh"};
-	unsigned int differenceShaderModelLocation = glGetUniformLocation(differenceShader.ID, "modelMat");
-	unsigned int differenceShaderProjLocation = glGetUniformLocation(differenceShader.ID, "projMat");
-	unsigned int differenceShaderTex1Location = glGetUniformLocation(differenceShader.ID, "tex1");
-	unsigned int differenceShaderTex2Location = glGetUniformLocation(differenceShader.ID, "tex2");
-	unsigned int differenceShaderAabbLocation = glGetUniformLocation(differenceShader.ID, "aabb");
+	TriangleShader triangleShader{"vertex.vsh", "fragment.fsh"};
+	DifferenceShader differenceShader{"vertex.vsh", "difference.fsh"};
+	OutlineShader outlineShader{"vertex.vsh", "outline.fsh"};
 
 	Texture spriteTextures[] = {
-		{"807/DSC00148.jpg"},
+		{"square.png"},
+		{"circle.png"}
+		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
 		{"807/DSC00151.jpg"},
@@ -441,7 +496,7 @@ int main(void) {
 		{"807/DSC00169.jpg"},
 		{"807/DSC00174.jpg"},
 		{"807/DSC00175.jpg"},
-		{"807/DSC00176.jpg"}
+		{"807/DSC00176.jpg"}*/
 	};
 	int howManySpriteTextures = sizeof(spriteTextures) / sizeof(Texture);
 	Texture targetTexture{"target.png"};
@@ -473,13 +528,12 @@ int main(void) {
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 	glEnableVertexAttribArray(1);
 
-	vector<Sprite> sprites;
 	bool showDifference = false;
 
 	int frameCount = 0;
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < 10; i++) {
 		sprites.push_back({});
 	}
 
@@ -497,106 +551,120 @@ int main(void) {
 	glBindVertexArray(VAO);
 	int iterations = 0;
 	bool ignoreDifference = false;
+	bool playing = false;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
-		int hm = sprites.size();//howmany
-		Sprite* current = &sprites.at(randIntRange(0, hm));//&sprites.at(randIntRange(max(0, hm - 10), hm));
-		Sprite after = *current;
-		randomlyTransformSprite(&after);
-		float* aabbBefore = getSpriteBoundingBox(current);
-		float* aabbAfter = getSpriteBoundingBox(&after);
-		float* differenceAabb = getDoubleBoundingBoxBoundingBox(aabbBefore, aabbAfter);
-		float* screenDifferenceAabb = (float*)malloc(sizeof(float) * 4);
-		screenDifferenceAabb[0] = differenceAabb[0] / (float)WIDTH;
-		screenDifferenceAabb[1] = differenceAabb[1] / (float)WIDTH;
-		screenDifferenceAabb[2] = differenceAabb[2] / (float)HEIGHT;
-		screenDifferenceAabb[3] = differenceAabb[3] / (float)HEIGHT;
+		Sprite* current;
+		if (playing) {
+			//find one to edit=====================================================
+			unsigned int largestDifferenceIndex = 0U;
+			double largestDifference = 0.;
+			for (unsigned int i = 0; i < sprites.size(); i++) {
+				if (sprites.at(i).difference >= 0. && false) {
+					if (sprites.at(i).difference > largestDifference) {
+						largestDifference = sprites.at(i).difference;
+						largestDifferenceIndex = i;
+					}
+				} else {
+					float* aabb = sprites.at(i).aabb;
+					int w = (int)(aabb[1] - aabb[0]);
+					int h = (int)(aabb[3] - aabb[2]);
+					glActiveTexture(GL_TEXTURE1);
+					boundingBoxBuffer.resize(w, h);
+					differenceBuffer.resize(w, h);
+					glViewport(0, 0, w, h);
+					glm::mat4 aabbProj = glm::ortho(aabb[0], aabb[1], aabb[2], aabb[3], -1.f, 1.f);
+					float* screenSpaceAabb = (float*)malloc(sizeof(float) * 4);
+					screenSpaceAabb[0] = aabb[0] / (float)WIDTH;
+					screenSpaceAabb[1] = aabb[1] / (float)WIDTH;
+					screenSpaceAabb[2] = aabb[2] / (float)HEIGHT;
+					screenSpaceAabb[3] = aabb[3] / (float)HEIGHT;
 
-		glm::mat4 fullscreenProj = glm::ortho(-0.5f, 0.5f, -0.5f, 0.5f, -1.f, 1.f);
-		glm::mat4 aabbProj = glm::ortho(differenceAabb[0], differenceAabb[1], differenceAabb[2], differenceAabb[3], -1.f, 1.f);
-		glm::mat4 identity = glm::mat4(1.f);
+					// render=====
+					glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
+					renderSprites(&triangleShader, aabb, howManySpriteTextures, &aabbProj, i);
+					// get difference===
+					glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
+					renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceAabb);
 
-		int w = (int)(differenceAabb[1] - differenceAabb[0]);
-		int h = (int)(differenceAabb[3] - differenceAabb[2]);
+					sprites.at(i).difference = getAverageBufferColor(0, 0, w, h, 3);
+					if (sprites.at(i).difference > largestDifference) {
+						largestDifference = sprites.at(i).difference;
+						largestDifferenceIndex = i;
+						if (save) cout << "highest diff: " << i << endl;
+					}
+					if (save) {
+						GLsizei stride = w * 3;
+						GLsizei bufferSize = stride * h;
 
-		//resize
-		glActiveTexture(GL_TEXTURE1);
-		boundingBoxBuffer.resize(w, h);
-		differenceBuffer.resize(w, h);
-		glViewport(0, 0, w, h);
+						glPixelStorei(GL_PACK_ALIGNMENT, 1);
+						glReadBuffer(GL_BACK);
+						stbi_flip_vertically_on_write(true);
+						unsigned char* bufferData = (unsigned char*)malloc(sizeof(unsigned char) * bufferSize);
+						glReadnPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
+						string fileName = "dif" + to_string(i) + ".png";
+						stbi_write_png(fileName.c_str(), w, h, 3, bufferData, stride);
+						cout << "saved " << fileName << endl;
+						free(bufferData);
+					}
+				}
+			}
+			save = false;
+			current = &sprites.at(largestDifferenceIndex);//&sprites.at(randIntRange(0, sprites.size()));//&sprites.at(randIntRange(max(0, sprites.size() - 10), sprites.size()));
 
-		// render before transform===================================================================================================================
-		glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-		glClear(GL_COLOR_BUFFER_BIT);
+			Sprite after = *current;
+			after.randomlyTransform();
+			float* aabbBefore = current->aabb;
+			float* aabbAfter = after.aabb;
+			float* differenceAabb = getDoubleBoundingBoxBoundingBox(aabbBefore, aabbAfter);
+			float* screenSpaceDifferenceAabb = (float*)malloc(sizeof(float) * 4);
+			screenSpaceDifferenceAabb[0] = differenceAabb[0] / (float)WIDTH;
+			screenSpaceDifferenceAabb[1] = differenceAabb[1] / (float)WIDTH;
+			screenSpaceDifferenceAabb[2] = differenceAabb[2] / (float)HEIGHT;
+			screenSpaceDifferenceAabb[3] = differenceAabb[3] / (float)HEIGHT;
 
-		triangleShader.use();
+			glm::mat4 aabbProj = glm::ortho(differenceAabb[0], differenceAabb[1], differenceAabb[2], differenceAabb[3], -1.f, 1.f);
 
-		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
-		for (Sprite& sprite : sprites) {
-			float* aabb = getSpriteBoundingBox(&sprite);
-			if (!aabbIntersect(aabb, differenceAabb)) continue;
-			glm::mat4 model = getSpriteModelMat(&sprite);
-			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
-			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
-			glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-		}
+			int w = (int)(differenceAabb[1] - differenceAabb[0]);
+			int h = (int)(differenceAabb[3] - differenceAabb[2]);
 
-		// get difference==================================================================================================
-		glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
-		glClear(GL_COLOR_BUFFER_BIT);
-		differenceShader.use();
+			//resize
+			glActiveTexture(GL_TEXTURE1);
+			boundingBoxBuffer.resize(w, h);
+			differenceBuffer.resize(w, h);
+			glViewport(0, 0, w, h);
 
-		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
-		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
-		glUniform1i(differenceShaderTex1Location, 0);
-		glUniform1i(differenceShaderTex2Location, 1);
-		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+			// render before transform===================================================================================================================
+			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
+			renderSprites(&triangleShader, differenceAabb, howManySpriteTextures, &aabbProj, -1);
+			// get difference==================================================================================================
+			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
+			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
 
-		double averageDifferenceBefore = getAverageBufferColor(0, 0, w, h, 3);
+			double averageDifferenceBefore = getAverageBufferColor(0, 0, w, h, 3);
 
+			Sprite before = *current;
+			*current = after;
 
-		Sprite before = *current;
-		*current = after;
-		// render after transform===================================================================================================================
-		glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-		glClear(GL_COLOR_BUFFER_BIT);
+			// render after transform===================================================================================================================
+			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
+			renderSprites(&triangleShader, differenceAabb, howManySpriteTextures, &aabbProj, -1);
+			// get difference==================================================================================================
+			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
+			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
 
-		triangleShader.use();
+			double averageDifferenceAfter = getAverageBufferColor(0, 0, w, h, 3);
 
-		glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(aabbProj));
-		for (Sprite& sprite : sprites) {
-			float* aabb = getSpriteBoundingBox(&sprite);
-			if (!aabbIntersect(aabb, differenceAabb)) continue;
-			glm::mat4 model = getSpriteModelMat(&sprite);
-			glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
-			glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
-			glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-		}
-
-		// get difference============================================================================================
-		glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
-		glClear(GL_COLOR_BUFFER_BIT);
-		differenceShader.use();
-
-		glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
-		glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, boundingBoxBuffer.textureColorBuffer);
-		glUniform1i(differenceShaderTex1Location, 0);
-		glUniform1i(differenceShaderTex2Location, 1);
-		glUniform1fv(differenceShaderAabbLocation, 4, screenDifferenceAabb);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-		double averageDifferenceAfter = getAverageBufferColor(0, 0, w, h, 3);
-
-		if (averageDifferenceAfter > averageDifferenceBefore && !ignoreDifference) {
-			*current = before;
-			averageDifferenceAfter = averageDifferenceBefore;
+			if (averageDifferenceAfter > averageDifferenceBefore && !ignoreDifference) {
+				*current = before;
+				averageDifferenceAfter = averageDifferenceBefore;
+			} else {
+				for (Sprite& sprite : sprites) {
+					if (aabbIntersect(sprite.aabb, aabbBefore) || aabbIntersect(sprite.aabb, aabbAfter)) {
+						sprite.difference = -1.;
+					}
+				}
+			}
 		}
 
 		//init imgui frame render frame==================================================================
@@ -607,51 +675,19 @@ int main(void) {
 		glBindFramebuffer(GL_FRAMEBUFFER, showDifference ? boundingBoxBuffer.framebuffer : 0);
 		glViewport(0, 0, WIDTH, HEIGHT);
 		double difference = -1.;
+		glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
 		if (showDifference) {
 			boundingBoxBuffer.resize(WIDTH, HEIGHT);
-			glClear(GL_COLOR_BUFFER_BIT);
+			renderSprites(&triangleShader, nullptr, howManySpriteTextures, &proj, -1);
 
-			triangleShader.use();
-
-			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
-
-			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
-			for (Sprite& sprite : sprites) {
-				glm::mat4 model = getSpriteModelMat(&sprite);
-				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
-				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
-				glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
-				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-			}
-
+			float uv[4] = {0.f, 1.f, 0.f, 1.f};
 
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			glClear(GL_COLOR_BUFFER_BIT);
-			differenceShader.use();
+			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, uv);
 
-			glUniformMatrix4fv(differenceShaderProjLocation, 1, GL_FALSE, glm::value_ptr(fullscreenProj));
-			glUniformMatrix4fv(differenceShaderModelLocation, 1, GL_FALSE, glm::value_ptr(identity));
-			glUniform1i(differenceShaderTex1Location, 0);
-			glUniform1i(differenceShaderTex2Location, 1);
-			float uv[4] = {0.f, 1.f, 0.f, 1.f};
-			glUniform1fv(differenceShaderAabbLocation, 4, uv);
-			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 			difference = getAverageBufferColor(0, 0, WIDTH, HEIGHT, 4);
 		} else {
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			triangleShader.use();
-
-			glm::mat4 proj = glm::ortho(0.f, (float)WIDTH, 0.f, (float)HEIGHT, -1.f, 1.f);
-
-			glUniformMatrix4fv(triangleShaderProjLocation, 1, GL_FALSE, glm::value_ptr(proj));
-			for (Sprite& sprite : sprites) {
-				glm::mat4 model = getSpriteModelMat(&sprite);
-				glUniformMatrix4fv(triangleShaderModelLocation, 1, GL_FALSE, glm::value_ptr(model));
-				glUniform3f(triangleShaderColLocation, sprite.r, sprite.g, sprite.b);
-				glUniform1i(triangleShaderTexLocation, (sprite.texId % howManySpriteTextures) + 2);
-				glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-			}
+			renderSprites(&triangleShader, nullptr, howManySpriteTextures, &proj, -1);
 			if (save) {
 				GLsizei stride = WIDTH * 3;
 				GLsizei bufferSize = stride * HEIGHT;
@@ -667,9 +703,23 @@ int main(void) {
 			}
 		}
 
+		if (playing) {
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			outlineShader.use();
+
+			glUniformMatrix4fv(outlineShader.projLocation, 1, GL_FALSE, glm::value_ptr(proj));
+
+			glm::mat4 outlineModel = current->getModelMat();
+			glUniformMatrix4fv(outlineShader.modelLocation, 1, GL_FALSE, glm::value_ptr(outlineModel));
+			glUniform3f(outlineShader.colLocation, 1.f, 1.f, 0.2f);
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		}
+
+
 
 		ImGui::Begin("Reduction");
 		ImGui::Text("%d FPS", fps);
+		ImGui::Checkbox("playing", &playing);
 		ImGui::Text("sprites: %d", (int)sprites.size());
 		static int howmany = 1;
 		if (ImGui::Button("add")) {
