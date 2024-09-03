@@ -27,6 +27,9 @@ float randFloat() {
 float lerp(float a, float b, float t) {
 	return (b - a) * t + a;
 }
+float invLerp(float a, float b, float t) {
+	return (t - a) / (b - a);
+}
 int randIntRange(int mn, int mx) {// excluding end
 	return rand() % (mx - mn) + mn;
 }
@@ -133,16 +136,20 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, projLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
-		projLocation = glGetUniformLocation(ID, "projMat");
 		texLocation = glGetUniformLocation(ID, "tex");
 		colLocation = glGetUniformLocation(ID, "col");
 		aLocation = glGetUniformLocation(ID, "a");
 		bLocation = glGetUniformLocation(ID, "b");
 		cLocation = glGetUniformLocation(ID, "c");
 		dLocation = glGetUniformLocation(ID, "d");
+		aabblLocation = glGetUniformLocation(ID, "aabbl");
+		aabbrLocation = glGetUniformLocation(ID, "aabbr");
+		aabbbLocation = glGetUniformLocation(ID, "aabbb");
+		aabbtLocation = glGetUniformLocation(ID, "aabbt");
+		ratioLocation = glGetUniformLocation(ID, "ratio");
 	}
 };
 class DifferenceShader : public Shader {
@@ -253,7 +260,7 @@ unsigned int indices[] = {
 };
 
 struct {
-	bool w, a, s, d, q, e, right, left, up, down, didMouseClick;
+	bool w, a, s, d, q, e, right, left, up, down, didMouseClick, z;
 	double mouseX, mouseY, scroll;
 } controls;
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -269,6 +276,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 		if (key == GLFW_KEY_UP) controls.up = true;
 		if (key == GLFW_KEY_DOWN) controls.down = true;
 		if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(window, true);
+		if (key == GLFW_KEY_Z) controls.z = true;
 	}
 	if (action == GLFW_RELEASE) {
 		if (key == GLFW_KEY_Q) controls.q = false;
@@ -440,13 +448,13 @@ double getAverageBufferColor(int x, int y, int w, int h, int step) {
 
 vector<Raster> rasters;
 float a = 0.f, b = 0.f, c = 0.f, d = 1.f;
+float ratio = 1.5f;
 
-void renderRasters(TriangleShader* triangleShader, AABB aabb, int howManyRasterTextures, glm::mat4* aabbProj, int endI) {
+void renderRasters(TriangleShader* triangleShader, AABB aabb, int howManyRasterTextures, int endI) {
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	triangleShader->use();
 
-	glUniformMatrix4fv(triangleShader->projLocation, 1, GL_FALSE, glm::value_ptr(*aabbProj));
 	int i = 0;
 	for (Raster& raster : rasters) {
 		if (i > endI && endI != -1) break;
@@ -460,6 +468,11 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int howManyRasterT
 		glUniform1f(triangleShader->bLocation, b);
 		glUniform1f(triangleShader->cLocation, c);
 		glUniform1f(triangleShader->dLocation, d);
+		glUniform1f(triangleShader->aabblLocation, aabb.l);
+		glUniform1f(triangleShader->aabbrLocation, aabb.r);
+		glUniform1f(triangleShader->aabbbLocation, aabb.b);
+		glUniform1f(triangleShader->aabbtLocation, aabb.t);
+		glUniform1f(triangleShader->ratioLocation, ratio);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	}
 }
@@ -507,10 +520,38 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 	return answer;
 }
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb) {
-	const float width = 1.f;
+	const float width = 5.f / (float)WIDTH;
+
+	float diagonal = 2.f;//sqrt(pow(viewAabb.r - viewAabb.l, 2.f) + pow(viewAabb.t - viewAabb.b, 2.f));
+
+	float centerX = (line.x1 + line.x2) * 0.5f;
+	float centerY = (line.y1 + line.y2) * 0.5f;
+	line.x1 -= centerX;
+	line.y1 -= centerY;
+	line.x2 -= centerX;
+	line.y2 -= centerY;
+
+	float n = sqrt(line.x1 * line.x1 + line.y1 * line.y1) / diagonal;
+	line.x1 /= n;
+	line.y1 /= n;
+
+	n = sqrt(line.x2 * line.x2 + line.y2 * line.y2) / diagonal;
+	line.x2 /= n;
+	line.y2 /= n;
+
+	line.x1 += centerX;
+	line.y1 += centerY;
+	line.x2 += centerX;
+	line.y2 += centerY;
+
+	line.x1 = invLerp(viewAabb.l, viewAabb.r, line.x1) * 2.f - 1.f;
+	line.y1 = invLerp(viewAabb.b, viewAabb.t, line.y1) * 2.f - 1.f;
+	line.x2 = invLerp(viewAabb.l, viewAabb.r, line.x2) * 2.f - 1.f;
+	line.y2 = invLerp(viewAabb.b, viewAabb.t, line.y2) * 2.f - 1.f;
+
 	colorShader->use();
 
-	glm::mat4 proj = glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
+	glm::mat4 proj = glm::mat4(1.f);///glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
 	glUniformMatrix4fv(colorShader->projLocation, 1, GL_FALSE, glm::value_ptr(proj));
 
 	glm::mat4 model = glm::mat4(1.f);
@@ -520,7 +561,7 @@ void renderLine(Line line, ColorShader* colorShader, AABB viewAabb) {
 	model = glm::scale(model, glm::vec3(width, length, 1.f));
 
 	glUniformMatrix4fv(colorShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
-	glUniform3f(colorShader->colLocation, 1.f, 1.f, 1.f);
+	glUniform3f(colorShader->colLocation, 0.f, 1.f, 1.f);
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 int main(void) {
@@ -667,14 +708,20 @@ int main(void) {
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
-		controls.mouseX = mouseX * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
-		controls.mouseY = mouseY * (double)(viewAabb.t - viewAabb.b) + viewAabb.b;
+		controls.mouseX = mouseX / (double)WIDTH * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
+		controls.mouseY = mouseY / (double)HEIGHT * (double)(viewAabb.t - viewAabb.b) + viewAabb.b;
 
-		viewAabb.l = lerp(viewAabb.l, controls.mouseX, controls.scroll * 0.05f);
-		viewAabb.r = lerp(viewAabb.r, controls.mouseX, controls.scroll * 0.05f);
-		viewAabb.b = lerp(viewAabb.b, controls.mouseY, controls.scroll * 0.05f);
-		viewAabb.t = lerp(viewAabb.t, controls.mouseY, controls.scroll * 0.05f);
+		const float scrollSpeed = 0.1f;
+		viewAabb.l = lerp(viewAabb.l, controls.mouseX, controls.scroll * scrollSpeed);
+		viewAabb.r = lerp(viewAabb.r, controls.mouseX, controls.scroll * scrollSpeed);
+		viewAabb.b = lerp(viewAabb.b, controls.mouseY, controls.scroll * scrollSpeed);
+		viewAabb.t = lerp(viewAabb.t, controls.mouseY, controls.scroll * scrollSpeed);
 		controls.scroll = 0.;
+
+		if (controls.z) {
+			controls.z = false;
+			lines.pop_back();
+		}
 
 		if (controls.didMouseClick) {
 			controls.didMouseClick = false;
@@ -693,7 +740,6 @@ int main(void) {
 		Raster* current;
 		bool didSucceedMove = true;
 		int index = -1;
-		double dif = -1.;
 		if (playing) {
 			//find one to edit=====================================================
 			if (isRandom) {
@@ -715,7 +761,6 @@ int main(void) {
 						boundingBoxBuffer.resize(w, h);
 						differenceBuffer.resize(w, h);
 						glViewport(0, 0, w, h);
-						glm::mat4 aabbProj = glm::ortho(aabb.l, aabb.r, aabb.b, aabb.t, -1.f, 1.f);
 						AABB screenSpaceAabb = {
 							aabb.l,
 							aabb.r,
@@ -725,7 +770,7 @@ int main(void) {
 
 						// render=====
 						glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-						renderRasters(&triangleShader, aabb, howManyRasterTextures, &aabbProj, i);
+						renderRasters(&triangleShader, aabb, howManyRasterTextures, i);
 						// get difference===
 						glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 						renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceAabb);
@@ -754,7 +799,6 @@ int main(void) {
 				}
 				//save = false;
 				index = largestDifferenceIndex;
-				dif = largestDifference;
 			}
 			current = &rasters.at(index);
 
@@ -770,7 +814,6 @@ int main(void) {
 				differenceAabb.t
 			};
 
-			glm::mat4 aabbProj = glm::ortho(differenceAabb.l, differenceAabb.r, differenceAabb.b, differenceAabb.t, -1.f, 1.f);
 
 			int w = (int)(differenceAabb.r - differenceAabb.l);
 			int h = (int)(differenceAabb.t - differenceAabb.b);
@@ -783,7 +826,7 @@ int main(void) {
 
 			// render before transform===================================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, &aabbProj, index);
+			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, index);
 			// get difference==================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
@@ -795,7 +838,7 @@ int main(void) {
 
 			// render after transform===================================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, &aabbProj, index);
+			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, index);
 			// get difference==================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
@@ -828,7 +871,7 @@ int main(void) {
 		if (showDifference) {
 			glActiveTexture(GL_TEXTURE1);
 			boundingBoxBuffer.resize(WIDTH, HEIGHT);
-			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, &proj, -1);
+			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, -1);
 
 			AABB uv = {0.f, 1.f, 0.f, 1.f};
 
@@ -837,7 +880,7 @@ int main(void) {
 
 			difference = getAverageBufferColor(0, 0, WIDTH, HEIGHT, 4);
 		} else {
-			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, &proj, -1);
+			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, -1);
 			if (save) {
 				GLsizei stride = WIDTH * 4;
 				GLsizei bufferSize = stride * HEIGHT;
@@ -874,9 +917,11 @@ int main(void) {
 			Line line = lines.at(i);
 
 			line.x1 = line.x1 * 2.f - 1.f;
-			line.y1 = line.y1 * 2.f- 1.f;
+			line.y1 = line.y1 * 2.f - 1.f;
 			line.x2 = line.x2 * 2.f - 1.f;
 			line.y2 = line.y2 * 2.f - 1.f;
+			line.x1 *= ratio;
+			line.x2 *= ratio;
 
 			glm::vec2 one = glm::vec2(line.x1, line.y1);
 			float r = glm::length(one);
@@ -892,6 +937,8 @@ int main(void) {
 			line.x2 = two.x;
 			line.y2 = two.y;
 
+			line.x1 /= ratio;
+			line.x2 /= ratio;
 			line.x1 = (line.x1 + 1.f) * 0.5f;
 			line.y1 = (line.y1 + 1.f) * 0.5f;
 			line.x2 = (line.x2 + 1.f) * 0.5f;
@@ -905,39 +952,42 @@ int main(void) {
 
 
 
-		ImGui::Begin("Reduction");
+		ImGui::Begin("Raster Doer");
 		ImGui::Text("%d FPS", fps);
-		ImGui::Checkbox("playing", &playing);
+		if (ImGui::Button("save")) save = true;
+		if (ImGui::CollapsingHeader("stats and stuff")) {
+			ImGui::Text("rasters: %d", (int)rasters.size());
+			ImGui::Text("average difference: %f", (float)difference);
+			ImGui::Text("iters: %d", iterations);
+			ImGui::Text("view %f %f %f %f", viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t);
+			ImGui::Text("mouse %f %f", controls.mouseX, controls.mouseY);
+		}
+		if (ImGui::CollapsingHeader("hill climbing algorithm")) {
+			ImGui::Checkbox("playing", &playing);
+			static int howmany = 1;
+			if (ImGui::Button("add rasters")) {
+				rasters.reserve(howmany);
+				for (int i = 0; i < howmany; i++) {
+					rasters.push_back({true});
+				}
+			}
+			ImGui::SameLine();
+			ImGui::SliderInt("howmany", &howmany, 1, 100);
+			if (ImGui::Button("show difference")) showDifference = !showDifference;
+			ImGui::Checkbox("only color", &only);
+			ImGui::Checkbox("random raster", &isRandom);
+			ImGui::Checkbox("ignore difference", &ignoreDifference);
+		}
 		if (ImGui::Button("add line")) {
 			addingLineMode = 1;
 		}
-		ImGui::Text("i %d, dif %f", index, dif);
-		ImGui::Text("rasters: %d", (int)rasters.size());
-		static int howmany = 1;
-		if (ImGui::Button("add")) {
-			rasters.reserve(howmany);
-			for (int i = 0; i < howmany; i++) {
-				rasters.push_back({true});
-			}
-		}
-		ImGui::SameLine();
-		ImGui::SliderInt("howmany", &howmany, 1, 100);
-		if (ImGui::Button("show difference")) showDifference = !showDifference;
-		ImGui::Text("average difference: %f", (float)difference);
-		ImGui::Text("iters: %d", iterations);
-		if (ImGui::Button("save")) save = true;
-		ImGui::Checkbox("only color", &only);
-		ImGui::Checkbox("random raster", &isRandom);
-		ImGui::Checkbox("ignore difference", &ignoreDifference);
-		if (ImGui::Button("dasd")) {
-			cout << viewAabb.l << ", " << viewAabb.r << ", " << viewAabb.b << ", " << viewAabb.t << endl;
-		}
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
-		ImGui::SliderFloat("a", &a, 0.f, 0.1f);
-		ImGui::SliderFloat("b", &b, 0.f, 0.1f);
-		ImGui::SliderFloat("c", &c, 0.f, 0.1f);
+		ImGui::SliderFloat("a", &a, 0.f, 0.08f);
+		ImGui::SliderFloat("b", &b, 0.f, 0.08f);
+		ImGui::SliderFloat("c", &c, 0.f, 0.08f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
+		ImGui::SliderFloat("ratio", &ratio, 0.5f, 2.f);
 		ImGui::End();
 
 		ImGui::Render();

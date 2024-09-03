@@ -12,7 +12,11 @@ uniform float c;
 uniform float d;
 
 uniform mat4 modelMat;
-uniform mat4 projMat;
+uniform float aabbl;
+uniform float aabbr;
+uniform float aabbb;
+uniform float aabbt;
+uniform float ratio;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * pow(r, 3.) + b * pow(r, 2.) + c * r + d) * r;
@@ -41,12 +45,15 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 
 void main() {
 	vec2 uv = texcoord;
-	uv = (projMat * vec4(uv, 0., 1.)).xy;
+	uv.x = mix(aabbl, aabbr, uv.x);
+	uv.y = mix(aabbb, aabbt, uv.y);
 	uv = uv * 2. - 1.;
+	uv.x *= ratio;
 	float r = length(uv);
 	r = inverseLensDistortion(r, a, b, c, d);
 	uv = normalize(uv) * r;
 
+	uv.x /= ratio;
 	uv = (uv + 1.) * 0.5;
 	vec4 color = texture(tex, uv);
 	color.rgb *= col;
