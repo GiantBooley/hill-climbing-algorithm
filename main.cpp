@@ -136,7 +136,7 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, perspALocation, perspBLocation, perspCLocation, perspDLocation, binarySearchIterationsLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -150,6 +150,13 @@ public:
 		aabbbLocation = glGetUniformLocation(ID, "aabbb");
 		aabbtLocation = glGetUniformLocation(ID, "aabbt");
 		ratioLocation = glGetUniformLocation(ID, "ratio");
+		aaResLocation = glGetUniformLocation(ID, "aaRes");
+		perspALocation = glGetUniformLocation(ID, "perspA");
+		perspBLocation = glGetUniformLocation(ID, "perspB");
+		perspCLocation = glGetUniformLocation(ID, "perspC");
+		perspDLocation = glGetUniformLocation(ID, "perspD");
+		resolutionLocation = glGetUniformLocation(ID, "resolution");
+		binarySearchIterationsLocation = glGetUniformLocation(ID, "binarySearchIterations");
 	}
 };
 class DifferenceShader : public Shader {
@@ -449,8 +456,13 @@ double getAverageBufferColor(int x, int y, int w, int h, int step) {
 vector<Raster> rasters;
 float a = 0.f, b = 0.f, c = 0.f, d = 1.f;
 float ratio = 1.5f;
+int binarySearchIterations = 20;
+glm::vec2 perspA = glm::vec2(0.f, 0.f);
+glm::vec2 perspB = glm::vec2(0.f, 1.f);
+glm::vec2 perspC = glm::vec2(1.f, 1.f);
+glm::vec2 perspD = glm::vec2(1.f, 0.f);
 
-void renderRasters(TriangleShader* triangleShader, AABB aabb, int howManyRasterTextures, int endI) {
+void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int width, int height, int howManyRasterTextures, int endI) {
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	triangleShader->use();
@@ -473,6 +485,13 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int howManyRasterT
 		glUniform1f(triangleShader->aabbbLocation, aabb.b);
 		glUniform1f(triangleShader->aabbtLocation, aabb.t);
 		glUniform1f(triangleShader->ratioLocation, ratio);
+		glUniform1i(triangleShader->aaResLocation, aaRes);
+		glUniform2f(triangleShader->resolutionLocation, (float)width, (float)height);
+		glUniform2f(triangleShader->perspALocation, perspA.x, perspA.y);
+		glUniform2f(triangleShader->perspBLocation, perspB.x, perspB.y);
+		glUniform2f(triangleShader->perspCLocation, perspC.x, perspC.y);
+		glUniform2f(triangleShader->perspDLocation, perspD.x, perspD.y);
+		glUniform1i(triangleShader->binarySearchIterationsLocation, binarySearchIterations);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	}
 }
@@ -617,7 +636,7 @@ int main(void) {
 	ColorShader colorShader{"shaders/vertex.vsh", "shaders/color.fsh"};
 
 	Texture rasterTextures[] = {
-		{"807/DSC00161.jpg"}
+		{"807/DSC00160.jpg"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -770,7 +789,7 @@ int main(void) {
 
 						// render=====
 						glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-						renderRasters(&triangleShader, aabb, howManyRasterTextures, i);
+						renderRasters(&triangleShader, aabb, 1, w, h, howManyRasterTextures, i);
 						// get difference===
 						glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 						renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceAabb);
@@ -826,7 +845,7 @@ int main(void) {
 
 			// render before transform===================================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, index);
+			renderRasters(&triangleShader, differenceAabb, 1, w, h, howManyRasterTextures, index);
 			// get difference==================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
@@ -838,7 +857,7 @@ int main(void) {
 
 			// render after transform===================================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, howManyRasterTextures, index);
+			renderRasters(&triangleShader, differenceAabb, 1, w, h, howManyRasterTextures, index);
 			// get difference==================================================================================================
 			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
 			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
@@ -864,14 +883,14 @@ int main(void) {
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		glBindFramebuffer(GL_FRAMEBUFFER, showDifference ? boundingBoxBuffer.framebuffer : 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, (showDifference || save) ? boundingBoxBuffer.framebuffer : 0);
 		glViewport(0, 0, WIDTH, HEIGHT);
 		double difference = -1.;
 		glm::mat4 proj = glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
-		if (showDifference) {
+		if (showDifference && !save) {
 			glActiveTexture(GL_TEXTURE1);
 			boundingBoxBuffer.resize(WIDTH, HEIGHT);
-			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, -1);
+			renderRasters(&triangleShader, viewAabb, 1, WIDTH, HEIGHT, howManyRasterTextures, -1);
 
 			AABB uv = {0.f, 1.f, 0.f, 1.f};
 
@@ -880,21 +899,29 @@ int main(void) {
 
 			difference = getAverageBufferColor(0, 0, WIDTH, HEIGHT, 4);
 		} else {
-			renderRasters(&triangleShader, viewAabb, howManyRasterTextures, -1);
+			int w, h;
 			if (save) {
-				GLsizei stride = WIDTH * 4;
-				GLsizei bufferSize = stride * HEIGHT;
+				w = WIDTH * (viewAabb.r - viewAabb.l);
+				h = HEIGHT * (viewAabb.t - viewAabb.b);
+				glActiveTexture(GL_TEXTURE1);
+				boundingBoxBuffer.resize(w, h);
+				glViewport(0, 0, w, h);
+			}
+			renderRasters(&triangleShader, viewAabb, save ? 5 : 1, w, h, howManyRasterTextures, -1);
+			if (save) {
+				GLsizei stride = w * 4;
+				GLsizei bufferSize = stride * h;
 
 				glPixelStorei(GL_PACK_ALIGNMENT, 1);
 				glReadBuffer(GL_BACK);
 				stbi_flip_vertically_on_write(true);
 				unsigned char* bufferData = (unsigned char*)malloc(sizeof(unsigned char) * bufferSize);
-				glReadnPixels(0, 0, WIDTH, HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE, bufferSize, bufferData);
-				stbi_write_png("output.png", WIDTH, HEIGHT, 4, bufferData, stride);
-				save = false;
+				glReadnPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, bufferSize, bufferData);
+				stbi_write_png("output.png", w, h, 4, bufferData, stride);
 				free(bufferData);
 			}
 		}
+		save = false;
 
 		if (playing) {
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -981,12 +1008,36 @@ int main(void) {
 		if (ImGui::Button("add line")) {
 			addingLineMode = 1;
 		}
+		if (ImGui::Button("align")) {
+			glm::vec2 bl = glm::vec2(-ratio, -1.f);
+			float r = glm::length(bl);
+			r = lensDistortion(r, a, b, c, d);
+			bl = glm::normalize(bl) * r;
+			viewAabb.l = bl.x * 0.5f / ratio + 0.5f;
+			viewAabb.b = bl.y * 0.5f + 0.5f;
+
+			glm::vec2 tr = glm::vec2(ratio, 1.f);
+			r = glm::length(tr);
+			r = lensDistortion(r, a, b, c, d);
+			tr = glm::normalize(tr) * r;
+			viewAabb.r = tr.x * 0.5f / ratio + 0.5f;
+			viewAabb.t = tr.y * 0.5f + 0.5f;
+		}
+		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::SliderFloat("a", &a, 0.f, 0.08f);
 		ImGui::SliderFloat("b", &b, 0.f, 0.08f);
 		ImGui::SliderFloat("c", &c, 0.f, 0.08f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
+		float* perspa[] = {&perspA.x, &perspA.y};
+		float* perspb[] = {&perspB.x, &perspB.y};
+		float* perspc[] = {&perspC.x, &perspC.y};
+		float* perspd[] = {&perspD.x, &perspD.y};
+		ImGui::SliderFloat2("1", *perspa, 0.f, 1.f);
+		ImGui::SliderFloat2("2", *perspb, 0.f, 1.f);
+		ImGui::SliderFloat2("3", *perspc, 0.f, 1.f);
+		ImGui::SliderFloat2("4", *perspd, 0.f, 1.f);
 		ImGui::SliderFloat("ratio", &ratio, 0.5f, 2.f);
 		ImGui::End();
 
