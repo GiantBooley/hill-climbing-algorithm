@@ -136,7 +136,7 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, perspALocation, perspBLocation, perspCLocation, perspDLocation, binarySearchIterationsLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, perspALocation, perspBLocation, perspCLocation, perspDLocation, transLocation, binarySearchIterationsLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -156,6 +156,7 @@ public:
 		perspCLocation = glGetUniformLocation(ID, "perspC");
 		perspDLocation = glGetUniformLocation(ID, "perspD");
 		resolutionLocation = glGetUniformLocation(ID, "resolution");
+		transLocation = glGetUniformLocation(ID, "trans");
 		binarySearchIterationsLocation = glGetUniformLocation(ID, "binarySearchIterations");
 	}
 };
@@ -267,7 +268,7 @@ unsigned int indices[] = {
 };
 
 struct {
-	bool w, a, s, d, q, e, right, left, up, down, didMouseClick, z;
+	bool w, a, s, d, q, e, right, left, up, down, didMouseClick, didMouseUnclick, z;
 	double mouseX, mouseY, scroll;
 } controls;
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -303,16 +304,21 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 	mouseX = xpos, mouseY = (double)HEIGHT - ypos;
 }
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+	auto& io = ImGui::GetIO();
+	if (io.WantCaptureMouse || io.WantCaptureKeyboard) return;
+
 	controls.scroll = yoffset;
 }
 
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
 	auto& io = ImGui::GetIO();
-	if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
-		return;
-	}
+	if (io.WantCaptureMouse || io.WantCaptureKeyboard) return;
+
 	if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
 		controls.didMouseClick = true;
+	}
+	if (action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT) {
+		controls.didMouseUnclick = true;
 	}
 }
 float clamp(float a, float lo, float hi) {
@@ -452,15 +458,18 @@ double getAverageBufferColor(int x, int y, int w, int h, int step) {
 	free(bufferData);
 	return average;
 }
+struct Point {
+	float x, y;
+};
+Point transformQuad[4] = {{0.f, 0.f}, {0.f, 1.f}, {1.f, 1.f}, {1.f, 0.f}};
 
 vector<Raster> rasters;
 float a = 0.f, b = 0.f, c = 0.f, d = 1.f;
 float ratio = 1.5f;
 int binarySearchIterations = 20;
-glm::vec2 perspA = glm::vec2(0.f, 0.f);
-glm::vec2 perspB = glm::vec2(0.f, 1.f);
-glm::vec2 perspC = glm::vec2(1.f, 1.f);
-glm::vec2 perspD = glm::vec2(1.f, 0.f);
+glm::mat4 trans = glm::mat4(1.f);
+
+int tris = 0;
 
 void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int width, int height, int howManyRasterTextures, int endI) {
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -487,12 +496,14 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1f(triangleShader->ratioLocation, ratio);
 		glUniform1i(triangleShader->aaResLocation, aaRes);
 		glUniform2f(triangleShader->resolutionLocation, (float)width, (float)height);
-		glUniform2f(triangleShader->perspALocation, perspA.x, perspA.y);
-		glUniform2f(triangleShader->perspBLocation, perspB.x, perspB.y);
-		glUniform2f(triangleShader->perspCLocation, perspC.x, perspC.y);
-		glUniform2f(triangleShader->perspDLocation, perspD.x, perspD.y);
+		glUniform2f(triangleShader->perspALocation, transformQuad[0].x, transformQuad[0].y);
+		glUniform2f(triangleShader->perspBLocation, transformQuad[1].x, transformQuad[1].y);
+		glUniform2f(triangleShader->perspCLocation, transformQuad[2].x, transformQuad[2].y);
+		glUniform2f(triangleShader->perspDLocation, transformQuad[3].x, transformQuad[3].y);
 		glUniform1i(triangleShader->binarySearchIterationsLocation, binarySearchIterations);
+		glUniformMatrix4fv(triangleShader->transLocation, 1, GL_FALSE, glm::value_ptr(trans));
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+		tris += 2;
 	}
 }
 const glm::mat4 identity = glm::mat4(1.f);
@@ -538,30 +549,32 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 
 	return answer;
 }
-void renderLine(Line line, ColorShader* colorShader, AABB viewAabb) {
+void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
 	const float width = 5.f / (float)WIDTH;
 
-	float diagonal = 2.f;//sqrt(pow(viewAabb.r - viewAabb.l, 2.f) + pow(viewAabb.t - viewAabb.b, 2.f));
+	if (endless) {
+		float diagonal = 2.f;//sqrt(pow(viewAabb.r - viewAabb.l, 2.f) + pow(viewAabb.t - viewAabb.b, 2.f));
 
-	float centerX = (line.x1 + line.x2) * 0.5f;
-	float centerY = (line.y1 + line.y2) * 0.5f;
-	line.x1 -= centerX;
-	line.y1 -= centerY;
-	line.x2 -= centerX;
-	line.y2 -= centerY;
+		float centerX = (line.x1 + line.x2) * 0.5f;
+		float centerY = (line.y1 + line.y2) * 0.5f;
+		line.x1 -= centerX;
+		line.y1 -= centerY;
+		line.x2 -= centerX;
+		line.y2 -= centerY;
 
-	float n = sqrt(line.x1 * line.x1 + line.y1 * line.y1) / diagonal;
-	line.x1 /= n;
-	line.y1 /= n;
+		float n = sqrt(line.x1 * line.x1 + line.y1 * line.y1) / diagonal;
+		line.x1 /= n;
+		line.y1 /= n;
 
-	n = sqrt(line.x2 * line.x2 + line.y2 * line.y2) / diagonal;
-	line.x2 /= n;
-	line.y2 /= n;
+		n = sqrt(line.x2 * line.x2 + line.y2 * line.y2) / diagonal;
+		line.x2 /= n;
+		line.y2 /= n;
 
-	line.x1 += centerX;
-	line.y1 += centerY;
-	line.x2 += centerX;
-	line.y2 += centerY;
+		line.x1 += centerX;
+		line.y1 += centerY;
+		line.x2 += centerX;
+		line.y2 += centerY;
+	}
 
 	line.x1 = invLerp(viewAabb.l, viewAabb.r, line.x1) * 2.f - 1.f;
 	line.y1 = invLerp(viewAabb.b, viewAabb.t, line.y1) * 2.f - 1.f;
@@ -582,6 +595,7 @@ void renderLine(Line line, ColorShader* colorShader, AABB viewAabb) {
 	glUniformMatrix4fv(colorShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
 	glUniform3f(colorShader->colLocation, 0.f, 1.f, 1.f);
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	tris += 2;
 }
 int main(void) {
 	glfwInit();
@@ -590,8 +604,8 @@ int main(void) {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, 1);
-	glfwWindowHint(GLFW_SAMPLES, 4);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_SAMPLES, 1);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 	//init glfw
 	GLFWwindow* window = glfwCreateWindow(640, 480, "Reduction", NULL, NULL);
@@ -715,6 +729,8 @@ int main(void) {
 	glBindVertexArray(VAO);
 
 	vector<Line> lines;
+	int selectedQuadPoint = -1;
+
 	int addingLineMode = 0; // 0 nothing 1 add first point 2 add 2nd point
 	float firstPointX = 0.f;
 	float firstPointY = 0.f;
@@ -725,6 +741,7 @@ int main(void) {
 	bool isRandom = false;
 
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
+	double ads = 0.;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
 		controls.mouseX = mouseX / (double)WIDTH * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
@@ -743,7 +760,6 @@ int main(void) {
 		}
 
 		if (controls.didMouseClick) {
-			controls.didMouseClick = false;
 			if (addingLineMode == 1) {
 				firstPointX = controls.mouseX;
 				firstPointY = controls.mouseY;
@@ -753,13 +769,31 @@ int main(void) {
 				float y = controls.mouseY;
 				lines.push_back({firstPointX, firstPointY, x, y});
 				addingLineMode = 0;
+			} else if (selectedQuadPoint == -1) {
+				for (int i = 0; i < 4; i++) {
+					if (square(transformQuad[i].x - controls.mouseX) + square(transformQuad[i].y - controls.mouseY) < square((viewAabb.r - viewAabb.l) * 0.01f)) {
+						selectedQuadPoint = i;
+						break;
+					}
+				}
 			}
+		}
+		if (controls.didMouseUnclick) {
+			selectedQuadPoint = -1;
+		}
+		controls.didMouseClick = false;
+		controls.didMouseUnclick = false;
+
+		if (selectedQuadPoint != -1) {
+			transformQuad[selectedQuadPoint].x = controls.mouseX;
+			transformQuad[selectedQuadPoint].y = controls.mouseY;
 		}
 
 		Raster* current;
 		bool didSucceedMove = true;
 		int index = -1;
-		if (playing) {
+		tris = 0;
+		/*if (playing) {
 			//find one to edit=====================================================
 			if (isRandom) {
 				index = randIntRange(0, rasters.size());
@@ -813,7 +847,7 @@ int main(void) {
 							stbi_write_png(fileName.c_str(), w, h, 3, bufferData, stride);
 							cout << "saved " << fileName << endl;
 							free(bufferData);
-						}*/
+						}*
 					}
 				}
 				//save = false;
@@ -876,7 +910,7 @@ int main(void) {
 				}
 			}
 			iterations++;
-		}
+		}*/
 
 		//init imgui frame render frame==================================================================
 		ImGui_ImplOpenGL3_NewFrame();
@@ -885,6 +919,7 @@ int main(void) {
 
 		glBindFramebuffer(GL_FRAMEBUFFER, (showDifference || save) ? boundingBoxBuffer.framebuffer : 0);
 		glViewport(0, 0, WIDTH, HEIGHT);
+		glClear(GL_COLOR_BUFFER_BIT);
 		double difference = -1.;
 		glm::mat4 proj = glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
 		if (showDifference && !save) {
@@ -899,7 +934,7 @@ int main(void) {
 
 			difference = getAverageBufferColor(0, 0, WIDTH, HEIGHT, 4);
 		} else {
-			int w, h;
+			int w = WIDTH, h = HEIGHT;
 			if (save) {
 				w = WIDTH * (viewAabb.r - viewAabb.l);
 				h = HEIGHT * (viewAabb.t - viewAabb.b);
@@ -971,7 +1006,11 @@ int main(void) {
 			line.x2 = (line.x2 + 1.f) * 0.5f;
 			line.y2 = (line.y2 + 1.f) * 0.5f;
 
-			renderLine(line, &colorShader, viewAabb);
+			renderLine(line, &colorShader, viewAabb, true);
+		}
+		for (int i = 0; i < 4; i++) {
+			Line line = {transformQuad[i].x, transformQuad[i].y, transformQuad[(i + 1) % 4].x, transformQuad[(i + 1) % 4].y};
+			renderLine(line, &colorShader, viewAabb, false);
 		}
 		if (addingLineMode == 2) {
 			lines.pop_back();
@@ -981,6 +1020,7 @@ int main(void) {
 
 		ImGui::Begin("Raster Doer");
 		ImGui::Text("%d FPS", fps);
+		ImGui::Text("%d", tris);
 		if (ImGui::Button("save")) save = true;
 		if (ImGui::CollapsingHeader("stats and stuff")) {
 			ImGui::Text("rasters: %d", (int)rasters.size());
@@ -1030,21 +1070,26 @@ int main(void) {
 		ImGui::SliderFloat("c", &c, 0.f, 0.08f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
-		float* perspa[] = {&perspA.x, &perspA.y};
-		float* perspb[] = {&perspB.x, &perspB.y};
-		float* perspc[] = {&perspC.x, &perspC.y};
-		float* perspd[] = {&perspD.x, &perspD.y};
-		ImGui::SliderFloat2("1", *perspa, 0.f, 1.f);
-		ImGui::SliderFloat2("2", *perspb, 0.f, 1.f);
-		ImGui::SliderFloat2("3", *perspc, 0.f, 1.f);
-		ImGui::SliderFloat2("4", *perspd, 0.f, 1.f);
+
+		float* them = glm::value_ptr(trans);
+		float* row1[] = {them    , them + 1 , them + 2 , them + 3};
+		float* row2[] = {them + 4, them + 5 , them + 6 , them + 7};
+		float* row3[] = {them + 8, them + 9 , them + 10, them + 11};
+		float* row4[] = {them + 12, them + 13, them + 14, them + 15};
+		ImGui::SliderFloat4("[0]", *row1, -1.f, 1.f);
+		ImGui::SliderFloat4("[1]", *row2, -1.f, 1.f);
+		ImGui::SliderFloat4("[2]", *row3, -1.f, 1.f);
+		ImGui::SliderFloat4("[3]", *row4, -1.f, 1.f);
+
 		ImGui::SliderFloat("ratio", &ratio, 0.5f, 2.f);
 		ImGui::End();
 
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+		double last = glfwGetTime();
 		glfwSwapBuffers(window);
+		ads = glfwGetTime() - last;
 		glfwPollEvents();
 
 		frameCount++;
