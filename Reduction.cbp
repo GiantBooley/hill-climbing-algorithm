@@ -47,6 +47,7 @@
 		<Unit filename="imgui_tables.cpp" />
 		<Unit filename="imgui_widgets.cpp" />
 		<Unit filename="main.cpp" />
+		<Unit filename="shaders/circle.fsh" />
 		<Unit filename="shaders/color.fsh" />
 		<Unit filename="shaders/difference.fsh" />
 		<Unit filename="shaders/fragment.fsh" />

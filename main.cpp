@@ -200,6 +200,15 @@ public:
 		colLocation = glGetUniformLocation(ID, "col");
 	}
 };
+class CircleShader : public Shader {
+public:
+	unsigned int modelLocation, projLocation, colLocation;
+	CircleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
+		modelLocation = glGetUniformLocation(ID, "modelMat");
+		projLocation = glGetUniformLocation(ID, "projMat");
+		colLocation = glGetUniformLocation(ID, "col");
+	}
+};
 class FrameBuffer {
 public:
 	unsigned int framebuffer;
@@ -597,6 +606,25 @@ void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	tris += 2;
 }
+void renderCircle(float x, float y, float r, CircleShader* circleShader, AABB viewAabb) {
+	x = invLerp(viewAabb.l, viewAabb.r, x) * 2.f - 1.f;
+	y = invLerp(viewAabb.b, viewAabb.t, y) * 2.f - 1.f;
+
+	circleShader->use();
+
+	glm::mat4 proj = glm::mat4(1.f);///glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
+	glUniformMatrix4fv(circleShader->projLocation, 1, GL_FALSE, glm::value_ptr(proj));
+
+	glm::mat4 model = glm::mat4(1.f);
+	model = glm::translate(model, glm::vec3(x, y, 0.f));
+	float width = r * 2.f;
+	model = glm::scale(model, glm::vec3(width, width * (float)WIDTH / (float)HEIGHT, 1.f));
+
+	glUniformMatrix4fv(circleShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
+	glUniform3f(circleShader->colLocation, 0.5f, 1.f, 1.f);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	tris += 2;
+}
 int main(void) {
 	glfwInit();
 
@@ -648,6 +676,7 @@ int main(void) {
 	DifferenceShader differenceShader{"shaders/vertex.vsh", "shaders/difference.fsh"};
 	OutlineShader outlineShader{"shaders/vertex.vsh", "shaders/outline.fsh"};
 	ColorShader colorShader{"shaders/vertex.vsh", "shaders/color.fsh"};
+	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
 		{"807/DSC00160.jpg"}
@@ -771,7 +800,7 @@ int main(void) {
 				addingLineMode = 0;
 			} else if (selectedQuadPoint == -1) {
 				for (int i = 0; i < 4; i++) {
-					if (square(transformQuad[i].x - controls.mouseX) + square(transformQuad[i].y - controls.mouseY) < square((viewAabb.r - viewAabb.l) * 0.01f)) {
+					if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)HEIGHT / (float)WIDTH) < square((viewAabb.r - viewAabb.l) * 0.005f)) {
 						selectedQuadPoint = i;
 						break;
 					}
@@ -1011,6 +1040,7 @@ int main(void) {
 		for (int i = 0; i < 4; i++) {
 			Line line = {transformQuad[i].x, transformQuad[i].y, transformQuad[(i + 1) % 4].x, transformQuad[(i + 1) % 4].y};
 			renderLine(line, &colorShader, viewAabb, false);
+			renderCircle(transformQuad[i].x, transformQuad[i].y, 0.01f, &circleShader, viewAabb);
 		}
 		if (addingLineMode == 2) {
 			lines.pop_back();
