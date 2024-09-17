@@ -136,7 +136,7 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, perspALocation, perspBLocation, perspCLocation, perspDLocation, transLocation, binarySearchIterationsLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, showDryLocation, gridLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -151,13 +151,11 @@ public:
 		aabbtLocation = glGetUniformLocation(ID, "aabbt");
 		ratioLocation = glGetUniformLocation(ID, "ratio");
 		aaResLocation = glGetUniformLocation(ID, "aaRes");
-		perspALocation = glGetUniformLocation(ID, "perspA");
-		perspBLocation = glGetUniformLocation(ID, "perspB");
-		perspCLocation = glGetUniformLocation(ID, "perspC");
-		perspDLocation = glGetUniformLocation(ID, "perspD");
 		resolutionLocation = glGetUniformLocation(ID, "resolution");
 		transLocation = glGetUniformLocation(ID, "trans");
 		binarySearchIterationsLocation = glGetUniformLocation(ID, "binarySearchIterations");
+		showDryLocation = glGetUniformLocation(ID, "showDry");
+		gridLocation = glGetUniformLocation(ID, "grid");
 	}
 };
 class DifferenceShader : public Shader {
@@ -278,7 +276,7 @@ unsigned int indices[] = {
 
 struct {
 	bool w, a, s, d, q, e, right, left, up, down, didMouseClick, didMouseUnclick, z;
-	double mouseX, mouseY, scroll;
+	double mouseX, mouseY, transMouseX, transMouseY, scroll;
 } controls;
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	if (action == GLFW_PRESS) {
@@ -467,19 +465,153 @@ double getAverageBufferColor(int x, int y, int w, int h, int step) {
 	free(bufferData);
 	return average;
 }
+
+glm::mat3 adj(glm::mat3 m) { // no problem
+	return glm::mat3(
+		m[1][1]*m[2][2]-m[2][1]*m[1][2], m[2][0]*m[1][2]-m[1][0]*m[2][2], m[1][0]*m[2][1]-m[2][0]*m[1][1],
+		m[2][1]*m[0][2]-m[0][1]*m[2][2], m[0][0]*m[2][2]-m[2][0]*m[0][2], m[2][0]*m[0][1]-m[0][0]*m[2][1],
+		m[0][1]*m[1][2]-m[1][1]*m[0][2], m[1][0]*m[0][2]-m[0][0]*m[1][2], m[0][0]*m[1][1]-m[1][0]*m[0][1]
+	);
+}glm::mat3 adj321(glm::mat3 m) { // no problem
+	return glm::mat3(
+		m[1][1]*m[2][2]-m[1][2]*m[2][1], m[0][2]*m[2][1]-m[0][1]*m[2][2], m[0][1]*m[1][2]-m[0][2]*m[1][1],
+		m[1][2]*m[2][0]-m[1][0]*m[2][2], m[0][0]*m[2][2]-m[0][2]*m[2][0], m[0][2]*m[1][0]-m[0][0]*m[1][2],
+		m[1][0]*m[2][1]-m[1][1]*m[2][0], m[0][1]*m[2][0]-m[0][0]*m[2][1], m[0][0]*m[1][1]-m[0][1]*m[1][0]
+	);
+}
+glm::mat3 multmm(glm::mat3 a, glm::mat3 b) { // multiply two matrices
+  glm::mat3 c;
+  for (int i = 0; i != 3; ++i) {
+    for (int j = 0; j != 3; ++j) {
+      float cij = 0.f;
+      for (int k = 0; k != 3; ++k) {
+        cij += a[i][k]*b[k][j];
+      }
+      c[i][j] = cij;
+    }
+  }
+  return c;
+}
+glm::mat3 basisToPoints(float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4) { // no problem
+	glm::mat3 m = glm::mat3(
+		x1, x2, x3,
+		y1, y2, y3,
+		1.f,  1.f,  1.f
+	);
+	glm::vec3 v = adj(m) * glm::vec3(x4, y4, 1.);
+	//cout << v.x << ", " << v.y << ", " << v.z << endl;
+	glm::mat3 asd = multmm(m, glm::mat3(
+		v.x, 0.f, 0.f,
+		0.f, v.y, 0.f,
+		0.f, 0.f, v.z
+	));
+	//cout << asd[0][0] << ", " << asd[0][1] << ", " << asd[0][2] << ", " << asd[1][0] << ", " << asd[1][1] << ", " << asd[1][2] << ", " << asd[2][0] << ", " << asd[2][1] << ", " << asd[2][2] << endl;
+	return asd;
+}
+glm::mat3 general2DProjection( // no problem
+	float x1s, float y1s, float x1d, float y1d,
+	float x2s, float y2s, float x2d, float y2d,
+	float x3s, float y3s, float x3d, float y3d,
+	float x4s, float y4s, float x4d, float y4d
+) {
+	glm::mat3 s = basisToPoints(x1s, y1s, x2s, y2s, x3s, y3s, x4s, y4s); // good
+	glm::mat3 d = basisToPoints(x1d, y1d, x2d, y2d, x3d, y3d, x4d, y4d); // good
+	glm::mat3 asd = multmm(d, adj321(s));
+	return asd;
+
+}
+glm::mat3 transform2d(float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4) {
+	float w = 1.f;
+	float h = 1.f;
+	glm::mat3 t = general2DProjection(
+		0.f, 0.f, x1, y1,
+		w , 0.f, x4, y4,
+		0.f, h , x2, y2,
+		w , h , x3, y3
+	);
+	for (int x = 0; x < 3; x++) {
+		for (int y = 0; y < 3; y++) {
+			t[x][y] /= t[2][2];
+		}
+	}
+	t = glm::mat3(
+		t[0][0], t[1][0], t[2][0],
+		t[0][1], t[1][1], t[2][1],
+		t[0][2], t[1][2], t[2][2]
+	);
+	return t;
+}
+
 struct Point {
 	float x, y;
 };
-Point transformQuad[4] = {{0.f, 0.f}, {0.f, 1.f}, {1.f, 1.f}, {1.f, 0.f}};
+Point transformQuad[4] = {{0.f, 0.f}, {0.f, 1.f}, {1.5f, 1.5f}, {1.f, 0.f}};
+int gridX = 3;
+int gridY = 3;
 
 vector<Raster> rasters;
 float a = 0.f, b = 0.f, c = 0.f, d = 1.f;
 float ratio = 1.5f;
 int binarySearchIterations = 20;
-glm::mat4 trans = glm::mat4(1.f);
+glm::mat3 trans = glm::mat3(1.f);
 
 int tris = 0;
+bool ddo = true;
+bool showDry = false;
 
+float lensDistortion(float r, float a, float b, float c, float d) {
+	return (a * glm::pow(r, 3.f) + b * glm::pow(r, 2.f) + c * r + d) * r;
+}
+float inverseLensDistortion(float r, float a, float b, float c, float d) {
+	float answer = 0.f;
+
+	float start = 0.f;
+	float end = 10.f;
+
+	for (int i = 0; i < 32; i++) {
+		float mid = (start + end) * 0.5f;
+		float l = lensDistortion(mid, a, b, c, d);
+		answer = mid;
+
+		if (l < r) {
+			start = mid;
+			answer = mid;
+		} else {
+			end = mid;
+		}
+	}
+
+	return answer;
+}
+glm::vec2 transformPoint(glm::vec2 uv) {
+	glm::vec3 transformed = glm::vec3(uv, 1.f);
+	transformed = trans * transformed;
+	uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+
+	uv = uv * 2.f - 1.f;
+	uv.x *= ratio;
+	float r = glm::length(uv);
+	r = inverseLensDistortion(r, a, b, c, d);
+	uv = glm::normalize(uv) * r;
+	uv.x /= ratio;
+	return (uv + 1.f) * 0.5f;
+}
+glm::vec2 inverseTransformPoint(glm::vec2 uv) {
+	uv = uv * 2.f - 1.f;
+	uv.x *= ratio;
+	float r = glm::length(uv);
+	r = lensDistortion(r, a, b, c, d);
+	uv = glm::normalize(uv) * r;
+	uv.x /= ratio;
+	uv = (uv + 1.f) * 0.5f;
+
+	glm::vec3 transformed = glm::vec3(uv, 1.f);
+	transformed = glm::inverse(trans) * transformed;
+	uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+
+
+	return uv;
+}
 void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int width, int height, int howManyRasterTextures, int endI) {
 	glClear(GL_COLOR_BUFFER_BIT);
 
@@ -505,12 +637,11 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1f(triangleShader->ratioLocation, ratio);
 		glUniform1i(triangleShader->aaResLocation, aaRes);
 		glUniform2f(triangleShader->resolutionLocation, (float)width, (float)height);
-		glUniform2f(triangleShader->perspALocation, transformQuad[0].x, transformQuad[0].y);
-		glUniform2f(triangleShader->perspBLocation, transformQuad[1].x, transformQuad[1].y);
-		glUniform2f(triangleShader->perspCLocation, transformQuad[2].x, transformQuad[2].y);
-		glUniform2f(triangleShader->perspDLocation, transformQuad[3].x, transformQuad[3].y);
 		glUniform1i(triangleShader->binarySearchIterationsLocation, binarySearchIterations);
-		glUniformMatrix4fv(triangleShader->transLocation, 1, GL_FALSE, glm::value_ptr(trans));
+		if (ddo) trans = transform2d(transformQuad[0].x, transformQuad[0].y, transformQuad[1].x, transformQuad[1].y, transformQuad[2].x, transformQuad[2].y, transformQuad[3].x, transformQuad[3].y);
+		glUniformMatrix3fv(triangleShader->transLocation, 1, GL_FALSE, glm::value_ptr(trans));
+		glUniform1i(triangleShader->showDryLocation, showDry);
+		glUniform2i(triangleShader->gridLocation, gridX, gridY);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		tris += 2;
 	}
@@ -534,30 +665,6 @@ void renderDifference(DifferenceShader* differenceShader, unsigned int rastersTe
 struct Line {
 	float x1, y1, x2, y2;
 };
-float lensDistortion(float r, float a, float b, float c, float d) {
-	return (a * glm::pow(r, 3.f) + b * glm::pow(r, 2.f) + c * r + d) * r;
-}
-float inverseLensDistortion(float r, float a, float b, float c, float d) {
-	float answer = 0.f;
-
-	float start = 0.f;
-	float end = 10.f;
-
-	for (int i = 0; i < 32; i++) {
-		float mid = (start + end) * 0.5f;
-		float l = lensDistortion(mid, a, b, c, d);
-		answer = mid;
-
-		if (l < r) {
-			start = mid;
-			answer = mid;
-		} else {
-			end = mid;
-		}
-	}
-
-	return answer;
-}
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
 	const float width = 5.f / (float)WIDTH;
 
@@ -679,7 +786,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"807/DSC00160.jpg"}
+		{"IMG_2670.JPEG"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -775,6 +882,10 @@ int main(void) {
 	while (!glfwWindowShouldClose(window)) {
 		controls.mouseX = mouseX / (double)WIDTH * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
 		controls.mouseY = mouseY / (double)HEIGHT * (double)(viewAabb.t - viewAabb.b) + viewAabb.b;
+		glm::vec2 transMouse = glm::vec2(controls.mouseX, controls.mouseY);
+		transMouse = transformPoint(transMouse);
+		controls.transMouseX = transMouse.x;
+		controls.transMouseY = transMouse.y;
 
 		const float scrollSpeed = 0.1f;
 		viewAabb.l = lerp(viewAabb.l, controls.mouseX, controls.scroll * scrollSpeed);
@@ -790,12 +901,12 @@ int main(void) {
 
 		if (controls.didMouseClick) {
 			if (addingLineMode == 1) {
-				firstPointX = controls.mouseX;
-				firstPointY = controls.mouseY;
+				firstPointX = controls.transMouseX;
+				firstPointY = controls.transMouseY;
 				addingLineMode = 2;
 			} else if (addingLineMode == 2) {
-				float x = controls.mouseX;
-				float y = controls.mouseY;
+				float x = controls.transMouseX;
+				float y = controls.transMouseY;
 				lines.push_back({firstPointX, firstPointY, x, y});
 				addingLineMode = 0;
 			} else if (selectedQuadPoint == -1) {
@@ -971,7 +1082,7 @@ int main(void) {
 				boundingBoxBuffer.resize(w, h);
 				glViewport(0, 0, w, h);
 			}
-			renderRasters(&triangleShader, viewAabb, save ? 5 : 1, w, h, howManyRasterTextures, -1);
+			renderRasters(&triangleShader, viewAabb, save ? 3 : 1, w, h, howManyRasterTextures, -1);
 			if (save) {
 				GLsizei stride = w * 4;
 				GLsizei bufferSize = stride * h;
@@ -1000,48 +1111,52 @@ int main(void) {
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		}
 		if (addingLineMode == 2) {
-			float x = controls.mouseX;
-			float y = controls.mouseY;
+			float x = controls.transMouseX;
+			float y = controls.transMouseY;
 			lines.push_back({firstPointX, firstPointY, x, y});
 		}
 		for (unsigned int i = 0U; i < lines.size(); i++) {
 			Line line = lines.at(i);
 
-			line.x1 = line.x1 * 2.f - 1.f;
-			line.y1 = line.y1 * 2.f - 1.f;
-			line.x2 = line.x2 * 2.f - 1.f;
-			line.y2 = line.y2 * 2.f - 1.f;
-			line.x1 *= ratio;
-			line.x2 *= ratio;
-
 			glm::vec2 one = glm::vec2(line.x1, line.y1);
-			float r = glm::length(one);
-			r = lensDistortion(r, a, b, c, d);
-			one = glm::normalize(one) * r;
+			one = inverseTransformPoint(one);
 			line.x1 = one.x;
 			line.y1 = one.y;
 
 			glm::vec2 two = glm::vec2(line.x2, line.y2);
-			r = glm::length(two);
-			r = lensDistortion(r, a, b, c, d);
-			two = glm::normalize(two) * r;
+			two = inverseTransformPoint(two);
 			line.x2 = two.x;
 			line.y2 = two.y;
 
-			line.x1 /= ratio;
-			line.x2 /= ratio;
-			line.x1 = (line.x1 + 1.f) * 0.5f;
-			line.y1 = (line.y1 + 1.f) * 0.5f;
-			line.x2 = (line.x2 + 1.f) * 0.5f;
-			line.y2 = (line.y2 + 1.f) * 0.5f;
-
 			renderLine(line, &colorShader, viewAabb, true);
 		}
+		//render perspective grid
 		for (int i = 0; i < 4; i++) {
 			Line line = {transformQuad[i].x, transformQuad[i].y, transformQuad[(i + 1) % 4].x, transformQuad[(i + 1) % 4].y};
 			renderLine(line, &colorShader, viewAabb, false);
 			renderCircle(transformQuad[i].x, transformQuad[i].y, 0.01f, &circleShader, viewAabb);
 		}
+		for (int x = 1; x < gridX; x++) {
+			float t = (float)x / (float)gridX;
+			glm::vec2 one = glm::vec2(t, 0.f);
+			glm::vec2 two = glm::vec2(t, 1.f);
+			one = transformPoint(one);
+			two = transformPoint(two);
+
+			Line line = {one.x, one.y, two.x, two.y};
+			renderLine(line, &colorShader, viewAabb, false);
+		}
+		for (int y = 1; y < gridY; y++) {
+			float t = (float)y / (float)gridY;
+			glm::vec2 one = glm::vec2(0.f, t);
+			glm::vec2 two = glm::vec2(1.f, t);
+			one = transformPoint(one);
+			two = transformPoint(two);
+
+			Line line = {one.x, one.y, two.x, two.y};
+			renderLine(line, &colorShader, viewAabb, false);
+		}
+
 		if (addingLineMode == 2) {
 			lines.pop_back();
 		}
@@ -1079,7 +1194,7 @@ int main(void) {
 			addingLineMode = 1;
 		}
 		if (ImGui::Button("align")) {
-			glm::vec2 bl = glm::vec2(-ratio, -1.f);
+			glm::vec2 bl = glm::vec2(-ratio, -1.f);;
 			float r = glm::length(bl);
 			r = lensDistortion(r, a, b, c, d);
 			bl = glm::normalize(bl) * r;
@@ -1093,6 +1208,9 @@ int main(void) {
 			viewAabb.r = tr.x * 0.5f / ratio + 0.5f;
 			viewAabb.t = tr.y * 0.5f + 0.5f;
 		}
+		ImGui::Checkbox("dry", &showDry);
+		int* grid[] = {&gridX, &gridY};
+		ImGui::SliderInt2("grid", *grid, 1, 30);
 		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::SliderFloat("a", &a, 0.f, 0.08f);
@@ -1101,15 +1219,14 @@ int main(void) {
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
 
+		ImGui::Checkbox("do", &ddo);
 		float* them = glm::value_ptr(trans);
-		float* row1[] = {them    , them + 1 , them + 2 , them + 3};
-		float* row2[] = {them + 4, them + 5 , them + 6 , them + 7};
-		float* row3[] = {them + 8, them + 9 , them + 10, them + 11};
-		float* row4[] = {them + 12, them + 13, them + 14, them + 15};
-		ImGui::SliderFloat4("[0]", *row1, -1.f, 1.f);
-		ImGui::SliderFloat4("[1]", *row2, -1.f, 1.f);
-		ImGui::SliderFloat4("[2]", *row3, -1.f, 1.f);
-		ImGui::SliderFloat4("[3]", *row4, -1.f, 1.f);
+		float* row1[] = {them    , them + 1 , them + 2};
+		float* row2[] = {them + 3, them + 4 , them + 5};
+		float* row3[] = {them + 6, them + 7 , them + 8};
+		ImGui::SliderFloat3("[0]", *row1, -1.f, 1.f);
+		ImGui::SliderFloat3("[1]", *row2, -1.f, 1.f);
+		ImGui::SliderFloat3("[2]", *row3, -1.f, 1.f);
 
 		ImGui::SliderFloat("ratio", &ratio, 0.5f, 2.f);
 		ImGui::End();
