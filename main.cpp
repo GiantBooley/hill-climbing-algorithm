@@ -136,7 +136,8 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, showTransformLocation, gridLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation,
+	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -155,6 +156,7 @@ public:
 		transLocation = glGetUniformLocation(ID, "trans");
 		binarySearchIterationsLocation = glGetUniformLocation(ID, "binarySearchIterations");
 		combineMosaicLocation = glGetUniformLocation(ID, "combineMosaic");
+		combineModeLocation = glGetUniformLocation(ID, "combineMode");
 		showTransformLocation = glGetUniformLocation(ID, "showTransform");
 		gridLocation = glGetUniformLocation(ID, "grid");
 	}
@@ -559,6 +561,7 @@ glm::mat3 trans = glm::mat3(1.f);
 int tris = 0;
 bool ddo = true;
 bool combineMosaic = false;
+int combineMode = 0;
 bool showTransform = false;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
@@ -648,6 +651,7 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		if (ddo) trans = transform2d(transformQuad[0].x, transformQuad[0].y, transformQuad[1].x, transformQuad[1].y, transformQuad[2].x, transformQuad[2].y, transformQuad[3].x, transformQuad[3].y);
 		glUniformMatrix3fv(triangleShader->transLocation, 1, GL_FALSE, glm::value_ptr(trans));
 		glUniform1i(triangleShader->combineMosaicLocation, combineMosaic);
+		glUniform1i(triangleShader->combineModeLocation, combineMode);
 		glUniform1i(triangleShader->showTransformLocation, showTransform);
 		glUniform2i(triangleShader->gridLocation, gridX, gridY);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -794,7 +798,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"brick.png"}
+		{"IMG_2676.JPEG"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -1218,6 +1222,7 @@ int main(void) {
 			viewAabb.r = tr.x * 0.5f / ratio + 0.5f;
 			viewAabb.t = tr.y * 0.5f + 0.5f;
 		}
+		ImGui::SliderInt("combine", &combineMode, 0, 1);
 		ImGui::Checkbox("show transform", &showTransform);
 		ImGui::Checkbox("combine mosaic", &combineMosaic);
 		int* grid[] = {&gridX, &gridY};
