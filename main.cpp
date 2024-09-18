@@ -136,7 +136,7 @@ public:
 };
 class TriangleShader : public Shader {
 public:
-	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, showDryLocation, gridLocation;
+	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation, aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, showTransformLocation, gridLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -154,7 +154,8 @@ public:
 		resolutionLocation = glGetUniformLocation(ID, "resolution");
 		transLocation = glGetUniformLocation(ID, "trans");
 		binarySearchIterationsLocation = glGetUniformLocation(ID, "binarySearchIterations");
-		showDryLocation = glGetUniformLocation(ID, "showDry");
+		combineMosaicLocation = glGetUniformLocation(ID, "combineMosaic");
+		showTransformLocation = glGetUniformLocation(ID, "showTransform");
 		gridLocation = glGetUniformLocation(ID, "grid");
 	}
 };
@@ -557,7 +558,8 @@ glm::mat3 trans = glm::mat3(1.f);
 
 int tris = 0;
 bool ddo = true;
-bool showDry = false;
+bool combineMosaic = false;
+bool showTransform = false;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * glm::pow(r, 3.f) + b * glm::pow(r, 2.f) + c * r + d) * r;
@@ -583,11 +585,14 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 
 	return answer;
 }
-glm::vec2 transformPoint(glm::vec2 uv) {
-	glm::vec3 transformed = glm::vec3(uv, 1.f);
-	transformed = trans * transformed;
-	uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+glm::vec2 transformPoint(glm::vec2 uv, bool lens) {
+	if (showTransform) {
+		glm::vec3 transformed = glm::vec3(uv, 1.f);
+		transformed = trans * transformed;
+		uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+	}
 
+	if (!lens) return uv;
 	uv = uv * 2.f - 1.f;
 	uv.x *= ratio;
 	float r = glm::length(uv);
@@ -605,9 +610,11 @@ glm::vec2 inverseTransformPoint(glm::vec2 uv) {
 	uv.x /= ratio;
 	uv = (uv + 1.f) * 0.5f;
 
-	glm::vec3 transformed = glm::vec3(uv, 1.f);
-	transformed = glm::inverse(trans) * transformed;
-	uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+	if (showTransform) {
+		glm::vec3 transformed = glm::vec3(uv, 1.f);
+		transformed = glm::inverse(trans) * transformed;
+		uv = glm::vec2(transformed.x, transformed.y) / transformed.z;
+	}
 
 
 	return uv;
@@ -640,7 +647,8 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1i(triangleShader->binarySearchIterationsLocation, binarySearchIterations);
 		if (ddo) trans = transform2d(transformQuad[0].x, transformQuad[0].y, transformQuad[1].x, transformQuad[1].y, transformQuad[2].x, transformQuad[2].y, transformQuad[3].x, transformQuad[3].y);
 		glUniformMatrix3fv(triangleShader->transLocation, 1, GL_FALSE, glm::value_ptr(trans));
-		glUniform1i(triangleShader->showDryLocation, showDry);
+		glUniform1i(triangleShader->combineMosaicLocation, combineMosaic);
+		glUniform1i(triangleShader->showTransformLocation, showTransform);
 		glUniform2i(triangleShader->gridLocation, gridX, gridY);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		tris += 2;
@@ -666,7 +674,7 @@ struct Line {
 	float x1, y1, x2, y2;
 };
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
-	const float width = 5.f / (float)WIDTH;
+	const float width = 10.f / (float)WIDTH;
 
 	if (endless) {
 		float diagonal = 2.f;//sqrt(pow(viewAabb.r - viewAabb.l, 2.f) + pow(viewAabb.t - viewAabb.b, 2.f));
@@ -786,7 +794,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"IMG_2670.JPEG"}
+		{"brick.png"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -883,7 +891,7 @@ int main(void) {
 		controls.mouseX = mouseX / (double)WIDTH * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
 		controls.mouseY = mouseY / (double)HEIGHT * (double)(viewAabb.t - viewAabb.b) + viewAabb.b;
 		glm::vec2 transMouse = glm::vec2(controls.mouseX, controls.mouseY);
-		transMouse = transformPoint(transMouse);
+		transMouse = transformPoint(transMouse, true);
 		controls.transMouseX = transMouse.x;
 		controls.transMouseY = transMouse.y;
 
@@ -1138,22 +1146,24 @@ int main(void) {
 		}
 		for (int x = 1; x < gridX; x++) {
 			float t = (float)x / (float)gridX;
-			glm::vec2 one = glm::vec2(t, 0.f);
-			glm::vec2 two = glm::vec2(t, 1.f);
-			one = transformPoint(one);
-			two = transformPoint(two);
+			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+			one = trans * one;
 
-			Line line = {one.x, one.y, two.x, two.y};
+			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+			two = trans * two;
+
+			Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
 			renderLine(line, &colorShader, viewAabb, false);
 		}
 		for (int y = 1; y < gridY; y++) {
 			float t = (float)y / (float)gridY;
-			glm::vec2 one = glm::vec2(0.f, t);
-			glm::vec2 two = glm::vec2(1.f, t);
-			one = transformPoint(one);
-			two = transformPoint(two);
+			glm::vec3 one = glm::vec3(0.f, t, 1.f);
+			one = trans * one;
 
-			Line line = {one.x, one.y, two.x, two.y};
+			glm::vec3 two = glm::vec3(1.f, t, 1.f);
+			two = trans * two;
+
+			Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
 			renderLine(line, &colorShader, viewAabb, false);
 		}
 
@@ -1208,7 +1218,8 @@ int main(void) {
 			viewAabb.r = tr.x * 0.5f / ratio + 0.5f;
 			viewAabb.t = tr.y * 0.5f + 0.5f;
 		}
-		ImGui::Checkbox("dry", &showDry);
+		ImGui::Checkbox("show transform", &showTransform);
+		ImGui::Checkbox("combine mosaic", &combineMosaic);
 		int* grid[] = {&gridX, &gridY};
 		ImGui::SliderInt2("grid", *grid, 1, 30);
 		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
@@ -1220,13 +1231,76 @@ int main(void) {
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
 
 		ImGui::Checkbox("do", &ddo);
-		float* them = glm::value_ptr(trans);
+		/*float* them = glm::value_ptr(trans);
 		float* row1[] = {them    , them + 1 , them + 2};
 		float* row2[] = {them + 3, them + 4 , them + 5};
 		float* row3[] = {them + 6, them + 7 , them + 8};
 		ImGui::SliderFloat3("[0]", *row1, -1.f, 1.f);
 		ImGui::SliderFloat3("[1]", *row2, -1.f, 1.f);
-		ImGui::SliderFloat3("[2]", *row3, -1.f, 1.f);
+		ImGui::SliderFloat3("[2]", *row3, -1.f, 1.f);*/
+		if (ImGui::Button("<")) {
+			float t = -1.f / (float)gridX;
+			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+			one = trans * one;
+			transformQuad[0].x = one.x / one.z;
+			transformQuad[0].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+			two = trans * two;
+			transformQuad[1].x = two.x / two.z;
+			transformQuad[1].y = two.y / two.z;
+			gridX++;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button(">")) {
+			float t = 1.f + 1.f / (float)gridX;
+			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+			one = trans * one;
+			transformQuad[3].x = one.x / one.z;
+			transformQuad[3].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+			two = trans * two;
+			transformQuad[2].x = two.x / two.z;
+			transformQuad[2].y = two.y / two.z;
+			gridX++;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("v")) {
+			float t = -1.f / (float)gridY;
+			glm::vec3 one = glm::vec3(0.f, t, 1.f);
+			one = trans * one;
+			transformQuad[0].x = one.x / one.z;
+			transformQuad[0].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(1.f, t, 1.f);
+			two = trans * two;
+			transformQuad[3].x = two.x / two.z;
+			transformQuad[3].y = two.y / two.z;
+			gridY++;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("^")) {
+			float t = 1.f + 1.f / (float)gridY;
+			glm::vec3 one = glm::vec3(0.f, t, 1.f);
+			one = trans * one;
+			transformQuad[1].x = one.x / one.z;
+			transformQuad[1].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(1.f, t, 1.f);
+			two = trans * two;
+			transformQuad[2].x = two.x / two.z;
+			transformQuad[2].y = two.y / two.z;
+			gridY++;
+		}
+		float* p1[] = {&transformQuad[0].x, &transformQuad[0].y};
+		float* p2[] = {&transformQuad[1].x, &transformQuad[1].y};
+		float* p3[] = {&transformQuad[2].x, &transformQuad[2].y};
+		float* p4[] = {&transformQuad[3].x, &transformQuad[3].y};
+		ImGui::SliderFloat2("1", *p1, 0.f, 1.f);
+		ImGui::SliderFloat2("2", *p2, 0.f, 1.f);
+		ImGui::SliderFloat2("3", *p3, 0.f, 1.f);
+		ImGui::SliderFloat2("4", *p4, 0.f, 1.f);
 
 		ImGui::SliderFloat("ratio", &ratio, 0.5f, 2.f);
 		ImGui::End();

@@ -21,7 +21,8 @@ uniform int aaRes;
 uniform vec2 resolution;
 uniform mat3 trans;
 uniform int binarySearchIterations;
-uniform bool showDry;
+uniform bool combineMosaic;
+uniform bool showTransform;
 uniform ivec2 grid;
 
 
@@ -58,7 +59,7 @@ vec4 doPixel(vec2 uv, float left, float right, float bottom, float top) {
 	//uv = vec2(mix(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), mix(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
 	//uv = vec2(inverseLerp(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), inverseLerp(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
 
-	if (!showDry) {
+	if (showTransform) {
 		vec3 transformed = vec3(uv, 1.);
 		transformed = trans * transformed;
 		uv = (transformed.xy) / transformed.z;
@@ -81,26 +82,26 @@ void main() {
 	float h = 1. / resolution.y / float(aaRes);	vec4 color = vec4(0.);
 	for (int x = 0; x < aaRes; x++) {
 		for (int y = 0; y < aaRes; y++) {
-			if (showDry) {
-				color += doPixel(texcoord + vec2(w * float(x), h * float(y)), aabbl, aabbr, aabbb, aabbt);
-			} else {
-				float howmany = 0.f;
+			if (combineMosaic) {
+				float howmany = 0.;
 				vec3 currentColor = vec3(0.);
-				for (int number = 0; number < grid.x * grid.y; number++) {
-					int ecks = number % grid.x;
-					int why = number / grid.y;
-					vec4 pixelColor = doPixel(
-						texcoord + vec2(w * float(x), h * float(y)),
-						mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbl),
-						mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbr),
-						mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
-						mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)
-					);
-					currentColor += pixelColor.rgb * pixelColor.a;
-					howmany += pixelColor.a;
+				for (int ecks = 0; ecks < grid.x; ecks++) {
+					for (int why = 0; why < grid.y; why++) {
+						vec4 pixelColor = doPixel(
+							texcoord + vec2(w * float(x), h * float(y)),
+							mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbl),
+							mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbr),
+							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
+							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)
+						);
+						currentColor += pixelColor.rgb * pixelColor.a;
+						howmany += pixelColor.a;
+					}
 				}
 				currentColor /= howmany;
-				color += vec4(currentColor, 1.);
+				color += vec4(currentColor, howmany > 0. ? 1. : 0.);
+			} else {
+				color += doPixel(texcoord + vec2(w * float(x), h * float(y)), aabbl, aabbr, aabbb, aabbt);
 			}
 		}
 	}
