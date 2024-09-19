@@ -53,7 +53,7 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 	return answer;
 }
 
-const int howman = 25;
+const int howman = 24;
 int peartition(inout float[howman] arr, int l, int r) {
 	int pivot = (r - l + 1) / 2;
 	float temp = arr[l + pivot];
@@ -101,6 +101,7 @@ void median(float[howman] arr, int l, int r, int k, inout float a, inout float b
 
 // Function to find Median
 float getMedian(float[howman] arr, int n) {
+	if (n == 0) return 0.;
 	float a = -1., b = -1.;
 
 	median(arr, 0, n - 1, n / 2, a, b);
@@ -139,6 +140,7 @@ void main() {
 		for (int y = 0; y < aaRes; y++) {
 			if (combineMosaic) {
 				float howmany = 0.;
+				int howmanyMedian = 0;
 				vec3 currentColor = vec3(0.);
 				for (int ecks = 0; ecks < grid.x; ecks++) {
 					for (int why = 0; why < grid.y; why++) {
@@ -149,10 +151,11 @@ void main() {
 							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
 							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)
 						);
-						if (combineMode == 1) {
-							red[ecks + why * grid.x] = pixelColor.r;
-							green[ecks + why * grid.x] = pixelColor.g;
-							blue[ecks + why * grid.x] = pixelColor.b;
+						if (combineMode == 1 && pixelColor.a > 0.5) {
+							red[howmanyMedian] = pixelColor.r;
+							green[howmanyMedian] = pixelColor.g;
+							blue[howmanyMedian] = pixelColor.b;
+							howmanyMedian++;
 						}
 						if (combineMode == 0) {
 							currentColor += pixelColor.rgb * pixelColor.a;
@@ -161,9 +164,9 @@ void main() {
 					}
 				}
 				if (combineMode == 1) {
-					currentColor.r = getMedian(red, howman);
-					currentColor.g = getMedian(green, howman);
-					currentColor.b = getMedian(blue, howman);
+					currentColor.r = getMedian(red, howmanyMedian);
+					currentColor.g = getMedian(green, howmanyMedian);
+					currentColor.b = getMedian(blue, howmanyMedian);
 				} else if (combineMode == 0) {
 					currentColor /= howmany;
 				}

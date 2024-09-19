@@ -798,7 +798,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"IMG_2676.JPEG"}
+		{"backrooms - Copyasdf.jpg"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -859,6 +859,7 @@ int main(void) {
 	int frameCount = 0;
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
+	float dt = 1.f;
 	for (int i = 0; i < 1; i++) {
 		rasters.push_back({false});
 	}
@@ -889,7 +890,6 @@ int main(void) {
 	bool isRandom = false;
 
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
-	double ads = 0.;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
 		controls.mouseX = mouseX / (double)WIDTH * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
@@ -905,6 +905,56 @@ int main(void) {
 		viewAabb.b = lerp(viewAabb.b, controls.mouseY, controls.scroll * scrollSpeed);
 		viewAabb.t = lerp(viewAabb.t, controls.mouseY, controls.scroll * scrollSpeed);
 		controls.scroll = 0.;
+
+		float howmuch = 0.5f * dt;
+		if (controls.left) {
+			float t = controls.w ? -howmuch : howmuch;
+			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+			one = trans * one;
+			transformQuad[0].x = one.x / one.z;
+			transformQuad[0].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+			two = trans * two;
+			transformQuad[1].x = two.x / two.z;
+			transformQuad[1].y = two.y / two.z;
+		}
+		if (controls.right) {
+			float t = controls.w ? 1.f + howmuch : 1.f - howmuch;
+			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+			one = trans * one;
+			transformQuad[3].x = one.x / one.z;
+			transformQuad[3].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+			two = trans * two;
+			transformQuad[2].x = two.x / two.z;
+			transformQuad[2].y = two.y / two.z;
+		}
+		if (controls.down) {
+			float t = controls.w ? -howmuch : howmuch;
+			glm::vec3 one = glm::vec3(0.f, t, 1.f);
+			one = trans * one;
+			transformQuad[0].x = one.x / one.z;
+			transformQuad[0].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(1.f, t, 1.f);
+			two = trans * two;
+			transformQuad[3].x = two.x / two.z;
+			transformQuad[3].y = two.y / two.z;
+		}
+		if (controls.up) {
+			float t = controls.w ? 1.f + howmuch : 1.f - howmuch;
+			glm::vec3 one = glm::vec3(0.f, t, 1.f);
+			one = trans * one;
+			transformQuad[1].x = one.x / one.z;
+			transformQuad[1].y = one.y / one.z;
+
+			glm::vec3 two = glm::vec3(1.f, t, 1.f);
+			two = trans * two;
+			transformQuad[2].x = two.x / two.z;
+			transformQuad[2].y = two.y / two.z;
+		}
 
 		if (controls.z) {
 			controls.z = false;
@@ -1178,7 +1228,7 @@ int main(void) {
 
 
 		ImGui::Begin("Raster Doer");
-		ImGui::Text("%d FPS", fps);
+		ImGui::Text("%d FPS %f", fps, dt);
 		ImGui::Text("%d", tris);
 		if (ImGui::Button("save")) save = true;
 		if (ImGui::CollapsingHeader("stats and stuff")) {
@@ -1315,7 +1365,7 @@ int main(void) {
 
 		double last = glfwGetTime();
 		glfwSwapBuffers(window);
-		ads = glfwGetTime() - last;
+		dt = glfwGetTime() - last;
 		glfwPollEvents();
 
 		frameCount++;
