@@ -25,7 +25,7 @@ uniform bool combineMosaic;
 uniform int combineMode;
 uniform bool showTransform;
 uniform ivec2 grid;
-
+uniform int gridNumber;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * r * r + b * r + c) * r * r + d * r;//6 multiplications
@@ -53,7 +53,15 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 	return answer;
 }
 
-const int howman = 24;
+const int howman = 48;
+const int howmanycolors = 5;
+const vec3[howmanycolors] colors = vec3[](
+	vec3(0.55, 0.53, 0.51), // dark white
+	vec3(0.47, 0.39, 0.35), // brown
+	vec3(0.62, 0.63, 0.64), // white
+	vec3(0.31, 0.40, 0.48), // blue
+	vec3(0.00, 0.08, 0.20) // black
+);
 int peartition(inout float[howman] arr, int l, int r) {
 	int pivot = (r - l + 1) / 2;
 	float temp = arr[l + pivot];
@@ -108,9 +116,10 @@ float getMedian(float[howman] arr, int n) {
 	return (n % 2 == 1) ? b : (a + b) * 0.5;
 }
 
-vec4 doPixel(vec2 uv, float left, float right, float bottom, float top) {
-	uv.x = mix(left, right, uv.x);
-	uv.y = mix(bottom, top, uv.y);
+float modRange(float x, float a, float b) {
+	return mod(x - a, b - a) + a;
+}
+vec4 doPixel(vec2 uv) {
 	//uv = vec2(mix(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), mix(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
 	//uv = vec2(inverseLerp(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), inverseLerp(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
 
@@ -131,49 +140,86 @@ vec4 doPixel(vec2 uv, float left, float right, float bottom, float top) {
 
 	return texture(tex, uv);
 }
+vec4 doGridPixel(vec2 uv, int ecks, int why) {
+		/*uv.x = mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbl),
+		mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbr),
+		mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
+		mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)*/
+	uv.x = mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), uv.x);
+	uv.y = mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), uv.y);
+	return doPixel(uv);
+}
 
 void main() {
 	float[howman] red, green, blue;
 	float w = 1. / resolution.x / float(aaRes);
-	float h = 1. / resolution.y / float(aaRes);	vec4 color = vec4(0.);
-	for (int x = 0; x < aaRes; x++) {
-		for (int y = 0; y < aaRes; y++) {
-			if (combineMosaic) {
-				float howmany = 0.;
-				int howmanyMedian = 0;
-				vec3 currentColor = vec3(0.);
-				for (int ecks = 0; ecks < grid.x; ecks++) {
-					for (int why = 0; why < grid.y; why++) {
-						vec4 pixelColor = doPixel(
-							texcoord + vec2(w * float(x), h * float(y)),
-							mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbl),
-							mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbr),
-							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
-							mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)
-						);
-						if (combineMode == 1 && pixelColor.a > 0.5) {
-							red[howmanyMedian] = pixelColor.r;
-							green[howmanyMedian] = pixelColor.g;
-							blue[howmanyMedian] = pixelColor.b;
-							howmanyMedian++;
-						}
-						if (combineMode == 0) {
-							currentColor += pixelColor.rgb * pixelColor.a;
-							howmany += pixelColor.a;
-						}
+	float h = 1. / resolution.y / float(aaRes);
+	vec4 color = vec4(0.);
+	//aa
+	for (int aa = 0; aa < aaRes * aaRes; aa++) {
+		vec2 youvee = texcoord + vec2(w * float(aa % aaRes), h * float(aa / aaRes));
+		vec2 uv = vec2(mix(aabbl, aabbr, texcoord.x), mix(aabbb, aabbt, texcoord.y));
+		if (combineMosaic) uv = mod(uv, 1.);
+
+		if (combineMosaic) {
+			float howmany = 0.;
+			int howmanyMedian = 0;
+			vec3 currentColor = vec3(0.);
+
+			if (combineMode == 0) {
+				for (int i = 0; i < grid.x * grid.y; i++) {
+					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					currentColor += pixelColor.rgb * pixelColor.a;
+					howmany += pixelColor.a;
+				}
+				currentColor /= howmany;
+			} else if (combineMode == 1) {
+				for (int i = 0; i < grid.x * grid.y; i++) {
+					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					if (pixelColor.a > 0.5) {
+						red[howmanyMedian] = pixelColor.r;
+						green[howmanyMedian] = pixelColor.g;
+						blue[howmanyMedian] = pixelColor.b;
+						howmanyMedian++;
 					}
 				}
-				if (combineMode == 1) {
-					currentColor.r = getMedian(red, howmanyMedian);
-					currentColor.g = getMedian(green, howmanyMedian);
-					currentColor.b = getMedian(blue, howmanyMedian);
-				} else if (combineMode == 0) {
-					currentColor /= howmany;
+				currentColor.r = getMedian(red, howmanyMedian);
+				currentColor.g = getMedian(green, howmanyMedian);
+				currentColor.b = getMedian(blue, howmanyMedian);
+			} else if (combineMode == 2) { // single
+				currentColor = doGridPixel(uv, gridNumber % grid.x, gridNumber / grid.x).rgb;
+			} else if (combineMode == 3) {
+				int[howmanycolors] currentColors = int[](0,0,0,0,0);
+				for (int i = 0; i < grid.x * grid.y; i++) {
+					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+
+					//get closest color
+					int closestColor = 0;
+					float closestColorDistance = 1000.;
+					for (int j = 0; j < howmanycolors; j++) {
+						float dist = distance(pixelColor.rgb, colors[j]);
+						if (dist < closestColorDistance) {
+							closestColorDistance = dist;
+							closestColor = j;
+						}
+					}
+					currentColors[closestColor]++;
 				}
-				color += vec4(currentColor, 1.);
-			} else {
-				color += doPixel(texcoord + vec2(w * float(x), h * float(y)), aabbl, aabbr, aabbb, aabbt);
+				//get mode
+				vec3 mostColor = vec3(0.);
+				int mostColorCount = 0;
+				for (int i = 0; i < howmanycolors; i++) {
+					if (currentColors[i] > mostColorCount) {
+						mostColor = colors[i];
+						mostColorCount = currentColors[i];
+					}
+				}
+				currentColor.rgb = mostColor;
+
 			}
+			color += vec4(currentColor, 1.);
+		} else {
+			color += doPixel(uv);
 		}
 	}
 	color /= float(aaRes * aaRes);

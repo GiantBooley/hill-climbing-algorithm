@@ -137,7 +137,7 @@ public:
 class TriangleShader : public Shader {
 public:
 	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation,
-	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation;
+	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation, gridNumberLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -159,6 +159,7 @@ public:
 		combineModeLocation = glGetUniformLocation(ID, "combineMode");
 		showTransformLocation = glGetUniformLocation(ID, "showTransform");
 		gridLocation = glGetUniformLocation(ID, "grid");
+		gridNumberLocation = glGetUniformLocation(ID, "gridNumber");
 	}
 };
 class DifferenceShader : public Shader {
@@ -563,6 +564,7 @@ bool ddo = true;
 bool combineMosaic = false;
 int combineMode = 0;
 bool showTransform = false;
+int gridNumber = 0;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * glm::pow(r, 3.f) + b * glm::pow(r, 2.f) + c * r + d) * r;
@@ -654,6 +656,7 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1i(triangleShader->combineModeLocation, combineMode);
 		glUniform1i(triangleShader->showTransformLocation, showTransform);
 		glUniform2i(triangleShader->gridLocation, gridX, gridY);
+		glUniform1i(triangleShader->gridNumberLocation, gridNumber);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		tris += 2;
 	}
@@ -785,7 +788,7 @@ int main(void) {
 	//stuff
 	glViewport(0, 0, 640, 480);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-	glfwSwapInterval(0);
+	glfwSwapInterval(1);
 	glEnable(GL_BLEND);
 	glEnable(GL_MULTISAMPLES_NV);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -798,7 +801,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"backrooms - Copyasdf.jpg"}
+		{"170_6634959_32_1701418810.jpg"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -859,6 +862,7 @@ int main(void) {
 	int frameCount = 0;
 	int fps = 0;
 	double lastFpsFrameTime = glfwGetTime();
+	double last = glfwGetTime();
 	float dt = 1.f;
 	for (int i = 0; i < 1; i++) {
 		rasters.push_back({false});
@@ -888,6 +892,7 @@ int main(void) {
 	bool ignoreDifference = false;
 	bool playing = false;
 	bool isRandom = false;
+	float howLongHasTheArrowKeyBeenPressed = 0.f;
 
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
 	//llooop
@@ -906,7 +911,9 @@ int main(void) {
 		viewAabb.t = lerp(viewAabb.t, controls.mouseY, controls.scroll * scrollSpeed);
 		controls.scroll = 0.;
 
-		float howmuch = 0.5f * dt;
+		if (controls.left || controls.right || controls.down || controls.up) howLongHasTheArrowKeyBeenPressed += dt;
+			else howLongHasTheArrowKeyBeenPressed = 0.f;
+		float howmuch = max(howLongHasTheArrowKeyBeenPressed, howLongHasTheArrowKeyBeenPressed * howLongHasTheArrowKeyBeenPressed) * 0.1f * dt;
 		if (controls.left) {
 			float t = controls.w ? -howmuch : howmuch;
 			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
@@ -1272,11 +1279,27 @@ int main(void) {
 			viewAabb.r = tr.x * 0.5f / ratio + 0.5f;
 			viewAabb.t = tr.y * 0.5f + 0.5f;
 		}
-		ImGui::SliderInt("combine", &combineMode, 0, 1);
+		static bool nearest = true;
+		if (ImGui::Checkbox("nearest", &nearest)) {
+			for (int i = 0; i < howManyRasterTextures; i++) {
+				glBindTexture(GL_TEXTURE_2D, rasterTextures[i].id);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
+			}
+		}
+		ImGui::SliderInt("combine", &combineMode, 0, 3);
 		ImGui::Checkbox("show transform", &showTransform);
 		ImGui::Checkbox("combine mosaic", &combineMosaic);
 		int* grid[] = {&gridX, &gridY};
 		ImGui::SliderInt2("grid", *grid, 1, 30);
+		ImGui::SliderInt("gridnum", &gridNumber, 0, gridX * gridY - 1);
+		ImGui::SameLine();
+		static bool yes = false;
+		ImGui::Checkbox("yes", &yes);
+		ImGui::SameLine();
+		static bool random = false;
+		ImGui::Checkbox("rand", &random);
+		if (yes) gridNumber = random ? rand() % (gridX * gridY) : (gridNumber + 1) % (gridX * gridY);
 		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::SliderFloat("a", &a, 0.f, 0.08f);
@@ -1363,9 +1386,9 @@ int main(void) {
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-		double last = glfwGetTime();
 		glfwSwapBuffers(window);
 		dt = glfwGetTime() - last;
+		last = glfwGetTime();
 		glfwPollEvents();
 
 		frameCount++;
