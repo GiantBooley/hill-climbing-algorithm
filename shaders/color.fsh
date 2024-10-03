@@ -7,5 +7,6 @@ in vec2 texcoord;
 uniform vec3 col;
 
 void main() {
-	FragColor = vec4(col, 1.);
+	float amount = 1. - 2. * abs(texcoord.x - 0.5);
+	FragColor = vec4(col * amount, 1.);
 }

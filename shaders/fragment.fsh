@@ -26,6 +26,8 @@ uniform int combineMode;
 uniform bool showTransform;
 uniform ivec2 grid;
 uniform int gridNumber;
+uniform float asdasd1;
+uniform float asdasd2;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * r * r + b * r + c) * r * r + d * r;//6 multiplications
@@ -54,14 +56,30 @@ float inverseLensDistortion(float r, float a, float b, float c, float d) {
 }
 
 const int howman = 48;
-const int howmanycolors = 5;
-const vec3[howmanycolors] colors = vec3[](
+const int howmanycolors = 3;
+vec3[howmanycolors] colors = vec3[](
+	vec3(0.09, 0.19, 0.32), // blue
+	vec3(0.50, 0.50, 0.50), // gray
+	vec3(0.15, 0.06, 0.12) // red
+);
+/*vec3[](
 	vec3(0.55, 0.53, 0.51), // dark white
 	vec3(0.47, 0.39, 0.35), // brown
 	vec3(0.62, 0.63, 0.64), // white
 	vec3(0.31, 0.40, 0.48), // blue
 	vec3(0.00, 0.08, 0.20) // black
-);
+);*/
+const vec3[howmanycolors] palette = vec3[](
+	vec3(0.09, 0.19, 0.32), // blue
+	vec3(0.50, 0.50, 0.50), // gray
+	vec3(0.15, 0.06, 0.12) // red
+);/*vec3[](
+	vec3(0.85, 0.78, 0.71), // dark white
+	vec3(0.83, 0.69, 0.58), // brown
+	vec3(0.88, 0.83, 0.78), // white
+	vec3(0.69, 0.71, 0.69), // blue
+	vec3(0.60, 0.61, 0.58) // black
+);*/
 int peartition(inout float[howman] arr, int l, int r) {
 	int pivot = (r - l + 1) / 2;
 	float temp = arr[l + pivot];
@@ -189,7 +207,7 @@ void main() {
 			} else if (combineMode == 2) { // single
 				currentColor = doGridPixel(uv, gridNumber % grid.x, gridNumber / grid.x).rgb;
 			} else if (combineMode == 3) {
-				int[howmanycolors] currentColors = int[](0,0,0,0,0);
+				int[howmanycolors] currentColors = int[](0,0,0);
 				for (int i = 0; i < grid.x * grid.y; i++) {
 					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
 
@@ -210,7 +228,7 @@ void main() {
 				int mostColorCount = 0;
 				for (int i = 0; i < howmanycolors; i++) {
 					if (currentColors[i] > mostColorCount) {
-						mostColor = colors[i];
+						mostColor = palette[i];
 						mostColorCount = currentColors[i];
 					}
 				}

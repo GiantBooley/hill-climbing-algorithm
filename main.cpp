@@ -137,7 +137,8 @@ public:
 class TriangleShader : public Shader {
 public:
 	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation,
-	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation, gridNumberLocation;
+	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation, gridNumberLocation,
+	asdasd1Location, asdasd2Location;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -160,6 +161,8 @@ public:
 		showTransformLocation = glGetUniformLocation(ID, "showTransform");
 		gridLocation = glGetUniformLocation(ID, "grid");
 		gridNumberLocation = glGetUniformLocation(ID, "gridNumber");
+		asdasd1Location = glGetUniformLocation(ID, "asdasd1");
+		asdasd2Location = glGetUniformLocation(ID, "asdasd2");
 	}
 };
 class DifferenceShader : public Shader {
@@ -549,7 +552,7 @@ glm::mat3 transform2d(float x1, float y1, float x2, float y2, float x3, float y3
 struct Point {
 	float x, y;
 };
-Point transformQuad[4] = {{0.f, 0.f}, {0.f, 1.f}, {1.5f, 1.5f}, {1.f, 0.f}};
+Point transformQuad[4] = {{0.f, 0.f}, {0.f, 1.f}, {1.f, 1.f}, {1.f, 0.f}};
 int gridX = 3;
 int gridY = 3;
 
@@ -565,6 +568,8 @@ bool combineMosaic = false;
 int combineMode = 0;
 bool showTransform = false;
 int gridNumber = 0;
+float asdasd1 = 0.38f;
+float asdasd2 = 0.5f;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * glm::pow(r, 3.f) + b * glm::pow(r, 2.f) + c * r + d) * r;
@@ -657,6 +662,8 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1i(triangleShader->showTransformLocation, showTransform);
 		glUniform2i(triangleShader->gridLocation, gridX, gridY);
 		glUniform1i(triangleShader->gridNumberLocation, gridNumber);
+		glUniform1f(triangleShader->asdasd1Location, asdasd1);
+		glUniform1f(triangleShader->asdasd2Location, asdasd2);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		tris += 2;
 	}
@@ -681,7 +688,7 @@ struct Line {
 	float x1, y1, x2, y2;
 };
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
-	const float width = 10.f / (float)WIDTH;
+	const float width = 15.f / (float)WIDTH;
 
 	if (endless) {
 		float diagonal = 2.f;//sqrt(pow(viewAabb.r - viewAabb.l, 2.f) + pow(viewAabb.t - viewAabb.b, 2.f));
@@ -717,14 +724,15 @@ void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless
 	glm::mat4 proj = glm::mat4(1.f);///glm::ortho(viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t, -1.f, 1.f);
 	glUniformMatrix4fv(colorShader->projLocation, 1, GL_FALSE, glm::value_ptr(proj));
 
+	float length = sqrt(square(line.x2 - line.x1) + square(line.y2 - line.y1));
+
 	glm::mat4 model = glm::mat4(1.f);
 	model = glm::translate(model, glm::vec3((line.x1 + line.x2) / 2.f, (line.y1 + line.y2) / 2.f, 0.f));
 	model = glm::rotate(model, atan((line.x2 - line.x1) / (line.y2 - line.y1)), glm::vec3(0.f, 0.f, -1.f));
-	float length = sqrt(square(line.x2 - line.x1) + square(line.y2 - line.y1));
 	model = glm::scale(model, glm::vec3(width, length, 1.f));
 
 	glUniformMatrix4fv(colorShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
-	glUniform3f(colorShader->colLocation, 0.f, 1.f, 1.f);
+	glUniform3f(colorShader->colLocation, 1.f, 1.f, 1.f);
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	tris += 2;
 }
@@ -739,7 +747,7 @@ void renderCircle(float x, float y, float r, CircleShader* circleShader, AABB vi
 
 	glm::mat4 model = glm::mat4(1.f);
 	model = glm::translate(model, glm::vec3(x, y, 0.f));
-	float width = r * 2.f;
+	float width = r / (float)WIDTH;
 	model = glm::scale(model, glm::vec3(width, width * (float)WIDTH / (float)HEIGHT, 1.f));
 
 	glUniformMatrix4fv(circleShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
@@ -801,7 +809,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"170_6634959_32_1701418810.jpg"}
+		{"images/aikman.jpg"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -980,7 +988,7 @@ int main(void) {
 				addingLineMode = 0;
 			} else if (selectedQuadPoint == -1) {
 				for (int i = 0; i < 4; i++) {
-					if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)HEIGHT / (float)WIDTH) < square((viewAabb.r - viewAabb.l) * 0.005f)) {
+					if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)HEIGHT / (float)WIDTH) < square((viewAabb.r - viewAabb.l) * (30.f / (float)WIDTH))) {
 						selectedQuadPoint = i;
 						break;
 					}
@@ -1145,13 +1153,13 @@ int main(void) {
 		} else {
 			int w = WIDTH, h = HEIGHT;
 			if (save) {
-				w = WIDTH * (viewAabb.r - viewAabb.l);
-				h = HEIGHT * (viewAabb.t - viewAabb.b);
+				w = WIDTH * 2;// * (viewAabb.r - viewAabb.l);
+				h = HEIGHT * 2;// * (viewAabb.t - viewAabb.b);
 				glActiveTexture(GL_TEXTURE1);
 				boundingBoxBuffer.resize(w, h);
 				glViewport(0, 0, w, h);
 			}
-			renderRasters(&triangleShader, viewAabb, save ? 3 : 1, w, h, howManyRasterTextures, -1);
+			renderRasters(&triangleShader, viewAabb, save ? 3 : 1, WIDTH, HEIGHT, howManyRasterTextures, -1);
 			if (save) {
 				GLsizei stride = w * 4;
 				GLsizei bufferSize = stride * h;
@@ -1200,32 +1208,34 @@ int main(void) {
 			renderLine(line, &colorShader, viewAabb, true);
 		}
 		//render perspective grid
-		for (int i = 0; i < 4; i++) {
-			Line line = {transformQuad[i].x, transformQuad[i].y, transformQuad[(i + 1) % 4].x, transformQuad[(i + 1) % 4].y};
-			renderLine(line, &colorShader, viewAabb, false);
-			renderCircle(transformQuad[i].x, transformQuad[i].y, 0.01f, &circleShader, viewAabb);
-		}
-		for (int x = 1; x < gridX; x++) {
-			float t = (float)x / (float)gridX;
-			glm::vec3 one = glm::vec3(t, 0.f, 1.f);
-			one = trans * one;
+		if (!showTransform) {
+			for (int i = 0; i < 4; i++) {
+				Line line = {transformQuad[i].x, transformQuad[i].y, transformQuad[(i + 1) % 4].x, transformQuad[(i + 1) % 4].y};
+				renderLine(line, &colorShader, viewAabb, false);
+				renderCircle(transformQuad[i].x, transformQuad[i].y, 30.f, &circleShader, viewAabb);
+			}
+			for (int x = 1; x < gridX; x++) {
+				float t = (float)x / (float)gridX;
+				glm::vec3 one = glm::vec3(t, 0.f, 1.f);
+				one = trans * one;
 
-			glm::vec3 two = glm::vec3(t, 1.f, 1.f);
-			two = trans * two;
+				glm::vec3 two = glm::vec3(t, 1.f, 1.f);
+				two = trans * two;
 
-			Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
-			renderLine(line, &colorShader, viewAabb, false);
-		}
-		for (int y = 1; y < gridY; y++) {
-			float t = (float)y / (float)gridY;
-			glm::vec3 one = glm::vec3(0.f, t, 1.f);
-			one = trans * one;
+				Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
+				renderLine(line, &colorShader, viewAabb, false);
+			}
+			for (int y = 1; y < gridY; y++) {
+				float t = (float)y / (float)gridY;
+				glm::vec3 one = glm::vec3(0.f, t, 1.f);
+				one = trans * one;
 
-			glm::vec3 two = glm::vec3(1.f, t, 1.f);
-			two = trans * two;
+				glm::vec3 two = glm::vec3(1.f, t, 1.f);
+				two = trans * two;
 
-			Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
-			renderLine(line, &colorShader, viewAabb, false);
+				Line line = {one.x / one.z, one.y / one.z, two.x / two.z, two.y / two.z};
+				renderLine(line, &colorShader, viewAabb, false);
+			}
 		}
 
 		if (addingLineMode == 2) {
@@ -1307,6 +1317,8 @@ int main(void) {
 		ImGui::SliderFloat("c", &c, 0.f, 0.08f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
+		ImGui::SliderFloat("asdasd1", &asdasd1, 0.f, 1.f);
+		ImGui::SliderFloat("asdasd2", &asdasd2, 0.f, 1.f);
 
 		ImGui::Checkbox("do", &ddo);
 		/*float* them = glm::value_ptr(trans);
