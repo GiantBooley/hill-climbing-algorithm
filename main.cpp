@@ -687,6 +687,9 @@ void renderDifference(DifferenceShader* differenceShader, unsigned int rastersTe
 struct Line {
 	float x1, y1, x2, y2;
 };
+struct LensLine {
+	float x1, float y1, float x2, float y2, float x3, float y3;
+};
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
 	const float width = 15.f / (float)WIDTH;
 
@@ -809,7 +812,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"images/aikman.jpg"}
+		{"807/DSC00161.jpg"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -890,11 +893,17 @@ int main(void) {
 	glBindVertexArray(VAO);
 
 	vector<Line> lines;
+	vector<LensLine> lensLines;
 	int selectedQuadPoint = -1;
 
-	int addingLineMode = 0; // 0 nothing 1 add first point 2 add 2nd point
+	int addingLineMode = 0; // 0 nothing 1 add first point 2 add 2nd point 3 add first lens point 4 add 2nd lens point 5 add middle lens point
 	float firstPointX = 0.f;
 	float firstPointY = 0.f;
+
+	float firstLensPointX = 0.f;
+	float firstLensPointY = 0.f;
+	float secondLensPointX = 0.f;
+	float secondLensPointY = 0.f;
 
 	int iterations = 0;
 	bool ignoreDifference = false;
@@ -985,6 +994,17 @@ int main(void) {
 				float x = controls.transMouseX;
 				float y = controls.transMouseY;
 				lines.push_back({firstPointX, firstPointY, x, y});
+				addingLineMode = 0;
+			} else if (addingLineMode == 3) {
+				firstLensPointX = controls.mouseX;
+				firstLensPointY = controls.mouseY;
+				addingLineMode = 4;
+			} else if (addingLineMode == 4) {
+				secondLensPointX = controls.mouseX;
+				LensPointY = controls.mouseY;
+				addingLineMode = 5;
+			} else if (addingLineMode == 5) {
+				lensLine.emplace_back(firstLensPointX, firstLensPointY, controls.mouseX, controls.mouseY, secondLensPointX, secondLensPointY);
 				addingLineMode = 0;
 			} else if (selectedQuadPoint == -1) {
 				for (int i = 0; i < 4; i++) {
