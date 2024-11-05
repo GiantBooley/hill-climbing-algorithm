@@ -687,9 +687,9 @@ void renderDifference(DifferenceShader* differenceShader, unsigned int rastersTe
 struct Line {
 	float x1, y1, x2, y2;
 };
-struct LensLine {
+/*struct LensLine {
 	float x1, float y1, float x2, float y2, float x3, float y3;
-};
+};*/
 void renderLine(Line line, ColorShader* colorShader, AABB viewAabb, bool endless) {
 	const float width = 15.f / (float)WIDTH;
 
@@ -812,7 +812,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	Texture rasterTextures[] = {
-		{"807/DSC00161.jpg"}
+		{"images/ht.png"}
 		/*{"807/DSC00148.jpg"},
 		{"807/DSC00149.jpg"},
 		{"807/DSC00150.jpg"},
@@ -893,7 +893,7 @@ int main(void) {
 	glBindVertexArray(VAO);
 
 	vector<Line> lines;
-	vector<LensLine> lensLines;
+	//vector<LensLine> lensLines;
 	int selectedQuadPoint = -1;
 
 	int addingLineMode = 0; // 0 nothing 1 add first point 2 add 2nd point 3 add first lens point 4 add 2nd lens point 5 add middle lens point
@@ -995,7 +995,7 @@ int main(void) {
 				float y = controls.transMouseY;
 				lines.push_back({firstPointX, firstPointY, x, y});
 				addingLineMode = 0;
-			} else if (addingLineMode == 3) {
+			}/* else if (addingLineMode == 3) {
 				firstLensPointX = controls.mouseX;
 				firstLensPointY = controls.mouseY;
 				addingLineMode = 4;
@@ -1006,7 +1006,7 @@ int main(void) {
 			} else if (addingLineMode == 5) {
 				lensLine.emplace_back(firstLensPointX, firstLensPointY, controls.mouseX, controls.mouseY, secondLensPointX, secondLensPointY);
 				addingLineMode = 0;
-			} else if (selectedQuadPoint == -1) {
+			}*/ else if (selectedQuadPoint == -1) {
 				for (int i = 0; i < 4; i++) {
 					if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)HEIGHT / (float)WIDTH) < square((viewAabb.r - viewAabb.l) * (30.f / (float)WIDTH))) {
 						selectedQuadPoint = i;
@@ -1332,9 +1332,9 @@ int main(void) {
 		if (yes) gridNumber = random ? rand() % (gridX * gridY) : (gridNumber + 1) % (gridX * gridY);
 		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
-		ImGui::SliderFloat("a", &a, 0.f, 0.08f);
-		ImGui::SliderFloat("b", &b, 0.f, 0.08f);
-		ImGui::SliderFloat("c", &c, 0.f, 0.08f);
+		ImGui::SliderFloat("a", &a, 0.f, 0.2f);
+		ImGui::SliderFloat("b", &b, 0.f, 0.2f);
+		ImGui::SliderFloat("c", &c, 0.f, 0.2f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
 		ImGui::SliderFloat("asdasd1", &asdasd1, 0.f, 1.f);
