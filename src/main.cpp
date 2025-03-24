@@ -343,6 +343,7 @@ class Point {
 public:
 	float x, y;
 	Point(float xx, float yy) : x(xx), y(yy) {}
+	Point() : x(0.f), y(0.f) {}
 	static float squareDistance(Point a, Point b) {
 		return square(a.x - b.x) + square(a.y - b.y);
 	}
@@ -555,6 +556,7 @@ class Line {
 public:
 	Point start, end;
 	Line(Point a, Point b) : start(a), end(b) {}
+	Line() : start({}), end({}) {}
 	float length() {
 		return sqrt(square(end.x - start.x) + square(end.y - start.y));
 	}
@@ -566,7 +568,12 @@ public:
 		*b = -(end.x - start.x);
 		*c = *a * start.x + *b * start.y;
 	}
-	static Point intersect(Line line1, Line line2, bool* didIntersect) {
+	float getPointInterpolation(Point p) {
+		if (start.x == end.x) return (p.y - start.y) / (end.y - start.y);
+		float slope = (end.y - start.y) / (end.x - start.x);
+		return ((p.x + slope * (p.y - start.y + slope * start.x)) / (slope * slope + 1.f) - start.x) / (end.x - start.x);
+	}
+	static Point intersect(Line line1, Line line2, bool* didIntersect, bool endless1, bool endless2, bool endInclusive = true) {
 		float a1, b1, c1;
 		float a2, b2, c2;
 		line1.getStandardForm(&a1, &b1, &c1);
@@ -576,33 +583,44 @@ public:
 			*didIntersect = false;
 			return {0.f, 0.f};
 		}
-		float x = (b2 * c1 - b1 * c2) / denominator;
-		float y = (a1 * c2 - a2 * c1) / denominator;
+		Point p = {
+			(b2 * c1 - b1 * c2) / denominator,
+			(a1 * c2 - a2 * c1) / denominator
+		};
 		*didIntersect = true;
-		return {x, y};
+		if (!endless1) {
+			float t = line1.getPointInterpolation(p);
+			if (t < 0.f || (endInclusive ? t > 1.f : t >= 1.f)) *didIntersect = false;
+		}
+		if (!endless2) {
+			float t = line2.getPointInterpolation(p);
+			if (t < 0.f || (endInclusive ? t > 1.f : t >= 1.f)) *didIntersect = false;
+		}
+		return p;
 	}
 	void extendToAABB(AABB aabb) {
-		Line left = {{aabb.l, aabb.b}, {aabb.l, aabb.t}};
-		Line right = {{aabb.r, aabb.b}, {aabb.r, aabb.t}};
-		Line bottom = {{aabb.l, aabb.b}, {aabb.r, aabb.b}};
-		Line top = {{aabb.l, aabb.t}, {aabb.r, aabb.t}};
-		bool leftDidIntersect, rightDidIntersect, bottomDidIntersect, topDidIntersect;
-		Point leftIntersection = Line::intersect(*this, left, &leftDidIntersect);
-		Point rightIntersection = Line::intersect(*this, right, &rightDidIntersect);
-		Point bottomIntersection = Line::intersect(*this, bottom, &bottomDidIntersect);
-		Point topIntersection = Line::intersect(*this, top, &topDidIntersect);
-
-		Point minPoint = {
-			bottomDidIntersect ? clamp(bottomIntersection.x, aabb.l, aabb.r) : aabb.l,
-			leftDidIntersect ? clamp(leftIntersection.y, aabb.b, aabb.t) : aabb.b
-		};
-		Point maxPoint = {
-			topDidIntersect ? clamp(topIntersection.x, aabb.l, aabb.r) : aabb.r,
-			rightDidIntersect ? clamp(rightIntersection.y, aabb.b, aabb.t) : aabb.t
+		// top, bottom, left, right
+		Line edges[4] = {
+			{{aabb.l, aabb.t}, {aabb.r, aabb.t}},
+			{{aabb.r, aabb.b}, {aabb.r, aabb.t}},
+			{{aabb.l, aabb.b}, {aabb.r, aabb.b}},
+			{{aabb.l, aabb.b}, {aabb.l, aabb.t}}
 		};
 
-		start = move(minPoint);
-		end = move(maxPoint);
+		Point firstPoint;
+		Point secondPoint;
+		int intersections = 0;
+
+		for (int i = 0; i < 4 && intersections < 2; i++) {
+			bool didIntersect;
+			Point intersection = Line::intersect(*this, edges[i], &didIntersect, true, false, false);
+			if (didIntersect) { // edit first or second point
+				(intersections == 0 ? firstPoint : secondPoint) = intersection;
+				intersections++;
+			}
+		}
+		start = firstPoint;
+		end = secondPoint;
 	}
 };
 /*struct LensLine {
@@ -713,7 +731,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	shared_ptr<Texture> rasterTextures[] = {
-		make_shared<Texture>("images/ht.png")
+		make_shared<Texture>("images/floralripnew.png")
 	};
 	int howManyRasterTextures = sizeof(rasterTextures) / sizeof(shared_ptr<Texture>);
 
@@ -777,6 +795,10 @@ int main(void) {
 	float howLongHasTheArrowKeyBeenPressed = 0.f;
 
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
+	
+	// dropdown menu imgui
+	const char* combineModeItems[] = {"mean", "median", "single", "mode", "mad"};
+	int currentCombineModeItemNumber = 0;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
 		controls.mouseX = mouseX / (double)frameWidth * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
@@ -1027,9 +1049,9 @@ int main(void) {
 
 		int w = frameWidth, h = frameHeight;
 		if (save) {
-			w = frameWidth * 2;// * (viewAabb.r - viewAabb.l);
-			h = frameHeight * 2;// * (viewAabb.t - viewAabb.b);
-			glViewport(0, 0, w, h);
+			//w = frameWidth * 2;// * (viewAabb.r - viewAabb.l);
+			//h = frameHeight * 2;// * (viewAabb.t - viewAabb.b);
+			//glViewport(0, 0, w, h);
 		}
 		renderRasters(&triangleShader, viewAabb, save ? 3 : 1, frameWidth, frameHeight, howManyRasterTextures, -1);
 		if (save) {
@@ -1137,11 +1159,21 @@ int main(void) {
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
 			}
 		}
-		ImGui::SliderInt("combine", &combineMode, 0, 3);
+		if (ImGui::BeginCombo("##combo", combineModeItems[currentCombineModeItemNumber])) {
+			for (int n = 0; n < IM_ARRAYSIZE(combineModeItems); n++) {
+				bool is_selected = currentCombineModeItemNumber == n;
+				if (ImGui::Selectable(combineModeItems[n], is_selected)) {
+					combineMode = n;
+					currentCombineModeItemNumber = n;
+				}
+				if (is_selected) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
 		ImGui::Checkbox("show transform", &showTransform);
 		ImGui::Checkbox("combine mosaic", &combineMosaic);
 		int* grid[] = {&gridX, &gridY};
-		ImGui::SliderInt2("grid", *grid, 1, 30);
+		ImGui::SliderInt2("gridres", *grid, 1, 30);
 		ImGui::SliderInt("gridnum", &gridNumber, 0, gridX * gridY - 1);
 		ImGui::SameLine();
 		static bool yes = false;

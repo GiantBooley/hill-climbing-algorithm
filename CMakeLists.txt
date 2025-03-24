@@ -19,5 +19,5 @@ add_executable(rastereditor
 target_include_directories(rastereditor PRIVATE src)
 
 target_link_libraries(rastereditor
-	${CMAKE_SOURCE_DIR}/lib/libglfw3.a
+	${CMAKE_SOURCE_DIR}/lib/libglfw3windows.a
 )
