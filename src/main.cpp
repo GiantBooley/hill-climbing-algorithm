@@ -623,6 +623,10 @@ public:
 		end = secondPoint;
 	}
 };
+
+enum ClickMode {
+	CM_NONE,CM_LINE_START,CM_LINE_END,CM_REFERENCEPOINT
+};
 /*struct LensLine {
 	float x1, float y1, float x2, float y2, float x3, float y3;
 };*/
@@ -731,7 +735,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	shared_ptr<Texture> rasterTextures[] = {
-		make_shared<Texture>("images/floralripnew.png")
+		make_shared<Texture>("../807/DSC00159.png")
 	};
 	int howManyRasterTextures = sizeof(rasterTextures) / sizeof(shared_ptr<Texture>);
 
@@ -782,10 +786,11 @@ int main(void) {
 	glBindVertexArray(VAO);
 
 	vector<Line> lines;
+	vector<Point> referencePoints;
 	//vector<LensLine> lensLines;
 	int selectedQuadPoint = -1;
 
-	int addingLineMode = 0; // 0 nothing 1 add first point 2 add 2nd point 3 add first lens point 4 add 2nd lens point 5 add middle lens point
+	ClickMode clickMode = CM_NONE;
 	Point lineStartPoint{0.f, 0.f};
 
 	int iterations = 0;
@@ -873,33 +878,38 @@ int main(void) {
 		}
 
 		if (controls.didMouseClick) {
-			if (addingLineMode == 1) {
+			switch (clickMode) {
+			case CM_NONE:{
+				if (selectedQuadPoint == -1) {
+					for (int i = 0; i < 4; i++) {
+						if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)frameHeight / (float)frameWidth) < square((viewAabb.r - viewAabb.l) * (30.f / (float)frameWidth))) {
+							selectedQuadPoint = i;
+							break;
+						}
+					}
+				}
+				break;
+			}
+			case CM_LINE_START:{
 				lineStartPoint.x = controls.transMouseX;
 				lineStartPoint.y = controls.transMouseY;
-				addingLineMode = 2;
-			} else if (addingLineMode == 2) {
+				clickMode = CM_LINE_END;
+				break;
+			}
+			case CM_LINE_END:{
 				float x = controls.transMouseX;
 				float y = controls.transMouseY;
 				lines.push_back({{lineStartPoint.x, lineStartPoint.y}, {x, y}});
-				addingLineMode = 0;
-			}/* else if (addingLineMode == 3) {
-				firstLensPointX = controls.mouseX;
-				firstLensPointY = controls.mouseY;
-				addingLineMode = 4;
-			} else if (addingLineMode == 4) {
-				secondLensPointX = controls.mouseX;
-				LensPointY = controls.mouseY;
-				addingLineMode = 5;
-			} else if (addingLineMode == 5) {
-				lensLine.emplace_back(firstLensPointX, firstLensPointY, controls.mouseX, controls.mouseY, secondLensPointX, secondLensPointY);
-				addingLineMode = 0;
-			}*/ else if (selectedQuadPoint == -1) {
-				for (int i = 0; i < 4; i++) {
-					if (square(transformQuad[i].x - controls.mouseX) + square((transformQuad[i].y - controls.mouseY) * (float)frameHeight / (float)frameWidth) < square((viewAabb.r - viewAabb.l) * (30.f / (float)frameWidth))) {
-						selectedQuadPoint = i;
-						break;
-					}
-				}
+				clickMode = CM_NONE;
+				break;
+			}
+			case CM_REFERENCEPOINT:{
+				float x = controls.transMouseX;
+				float y = controls.transMouseY;
+				referencePoints.push_back({x, y});
+				clickMode = CM_NONE;
+				break;
+			}
 			}
 		}
 		if (controls.didMouseUnclick) {
@@ -1068,11 +1078,12 @@ int main(void) {
 		}
 		save = false;
 
-		if (addingLineMode == 2) {
+		if (clickMode == CM_LINE_END) {
 			float x = controls.transMouseX;
 			float y = controls.transMouseY;
 			lines.push_back({{lineStartPoint.x, lineStartPoint.y}, {x, y}});
 		}
+		// render lines
 		for (unsigned int i = 0U; i < lines.size(); i++) {
 			Line line = lines.at(i);
 
@@ -1088,6 +1099,14 @@ int main(void) {
 
 			renderLine(line, &colorShader, viewAabb, true);
 		}
+		// rener reference points
+		for (unsigned int i = 0U; i < referencePoints.size(); i++) {
+			glm::vec2 point = glm::vec2(referencePoints.at(i).x, referencePoints.at(i).y);
+			point = inverseTransformPoint(point);
+
+			renderCircle(point.x, point.y, 20.f, &circleShader, viewAabb);
+		}
+
 		//render perspective grid
 		if (!showTransform) {
 			for (int i = 0; i < 4; i++) {
@@ -1119,7 +1138,7 @@ int main(void) {
 			}
 		}
 
-		if (addingLineMode == 2) {
+		if (clickMode == CM_LINE_END) {
 			lines.pop_back();
 		}
 
@@ -1128,15 +1147,18 @@ int main(void) {
 		ImGui::Begin("Raster Doer");
 		ImGui::Text("%d FPS %f", fps, dt);
 		ImGui::Text("%d", tris);
-		if (ImGui::Button("save")) save = true;
+		if (ImGui::Button("Save")) save = true;
 		if (ImGui::CollapsingHeader("stats and stuff")) {
-			ImGui::Text("view %f %f %f %f", viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t);
-			ImGui::Text("mouse %f %f", controls.mouseX, controls.mouseY);
+			ImGui::Text("View %f %f %f %f", viewAabb.l, viewAabb.r, viewAabb.b, viewAabb.t);
+			ImGui::Text("Mouse %f %f", controls.mouseX, controls.mouseY);
 		}
-		if (ImGui::Button("add line")) {
-			addingLineMode = 1;
+		if (ImGui::Button("Add line")) {
+			clickMode = CM_LINE_START;
 		}
-		if (ImGui::Button("align")) {
+		if (ImGui::Button("Add point")) {
+			clickMode = CM_REFERENCEPOINT;
+		}
+		if (ImGui::Button("Align")) {
 			glm::vec2 bl = glm::vec2(-ratio, -1.f);;
 			float r = glm::length(bl);
 			r = lensDistortion(r, a, b, c, d);
@@ -1152,7 +1174,7 @@ int main(void) {
 			viewAabb.t = tr.y * 0.5f + 0.5f;
 		}
 		static bool nearest = true;
-		if (ImGui::Checkbox("nearest", &nearest)) {
+		if (ImGui::Checkbox("Nearest", &nearest)) {
 			for (int i = 0; i < howManyRasterTextures; i++) {
 				glBindTexture(GL_TEXTURE_2D, rasterTextures[i]->id);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
@@ -1161,6 +1183,7 @@ int main(void) {
 		}
 		if (ImGui::BeginCombo("##combo", combineModeItems[currentCombineModeItemNumber])) {
 			for (int n = 0; n < IM_ARRAYSIZE(combineModeItems); n++) {
+				if (n == 1) continue;;
 				bool is_selected = currentCombineModeItemNumber == n;
 				if (ImGui::Selectable(combineModeItems[n], is_selected)) {
 					combineMode = n;
@@ -1170,19 +1193,19 @@ int main(void) {
 			}
 			ImGui::EndCombo();
 		}
-		ImGui::Checkbox("show transform", &showTransform);
-		ImGui::Checkbox("combine mosaic", &combineMosaic);
+		ImGui::Checkbox("Show transform", &showTransform);
+		ImGui::Checkbox("Combine mosaic", &combineMosaic);
 		int* grid[] = {&gridX, &gridY};
-		ImGui::SliderInt2("gridres", *grid, 1, 30);
-		ImGui::SliderInt("gridnum", &gridNumber, 0, gridX * gridY - 1);
+		ImGui::SliderInt2("Grid res", *grid, 1, 30);
+		ImGui::SliderInt("Grid num", &gridNumber, 0, gridX * gridY - 1);
 		ImGui::SameLine();
 		static bool yes = false;
-		ImGui::Checkbox("yes", &yes);
+		ImGui::Checkbox("Cycle through", &yes);
 		ImGui::SameLine();
 		static bool random = false;
-		ImGui::Checkbox("rand", &random);
+		ImGui::Checkbox("Rand", &random);
 		if (yes) gridNumber = random ? rand() % (gridX * gridY) : (gridNumber + 1) % (gridX * gridY);
-		ImGui::SliderInt("iteraiot", &binarySearchIterations, 1, 50);
+		ImGui::SliderInt("Lens iterations", &binarySearchIterations, 1, 50);
 		//ImGui::Text("%f %f %f %f", aabb[0], aabb[1], aabb[2], aabb[3]);
 		ImGui::SliderFloat("a", &a, 0.f, 0.2f);
 		ImGui::SliderFloat("b", &b, 0.f, 0.2f);
