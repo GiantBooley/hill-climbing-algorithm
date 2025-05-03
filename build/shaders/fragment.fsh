@@ -135,8 +135,6 @@ float modRange(float x, float a, float b) {
 	return mod(x - a, b - a) + a;
 }
 vec4 doPixel(vec2 uv) {
-	//uv = vec2(mix(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), mix(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
-	//uv = vec2(inverseLerp(mix(perspA.x, perspB.x, uv.y), mix(perspD.x, perspC.x, uv.y), uv.x), inverseLerp(mix(perspA.y, perspD.y, uv.x), mix(perspB.y, perspC.y, uv.x), uv.y));
 
 	if (showTransform) {
 		vec3 transformed = vec3(uv, 1.);
@@ -158,10 +156,6 @@ vec4 doPixel(vec2 uv) {
 	return texel;
 }
 vec4 doGridPixel(vec2 uv, int ecks, int why) {
-		/*uv.x = mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbl),
-		mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), aabbr),
-		mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbb),
-		mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), aabbt)*/
 	uv.x = mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), uv.x);
 	uv.y = mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), uv.y);
 	return doPixel(uv);
@@ -181,7 +175,8 @@ void main() {
 		if (combineMosaic) {
 			vec3 currentColor = vec3(0.);
 
-			if (combineMode == 0) {
+			switch (combineMode) {
+			case 0:{ // mean
 				float howmany = 0.;
 				for (int i = 0; i < grid.x * grid.y; i++) {
 					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
@@ -189,7 +184,9 @@ void main() {
 					howmany += pixelColor.a;
 				}
 				currentColor /= howmany;
-			} else if (combineMode == 1) {
+				break;
+			}
+			case 1:{ // median
 				int howmanyMedian = 0;
 				for (int i = 0; i < grid.x * grid.y; i++) {
 					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
@@ -203,9 +200,13 @@ void main() {
 				currentColor.r = getMedian(red, howmanyMedian);
 				currentColor.g = getMedian(green, howmanyMedian);
 				currentColor.b = getMedian(blue, howmanyMedian);
-			} else if (combineMode == 2) { // single
+				break;
+			}
+			case 2:{ // single
 				currentColor = doGridPixel(uv, gridNumber % grid.x, gridNumber / grid.x).rgb;
-			} else if (combineMode == 3) { // color palette
+				break;
+			}
+			case 3:{ // color palette
 				int[howmanycolors] currentColors = int[](0,0,0);
 				for (int i = 0; i < grid.x * grid.y; i++) {
 					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
@@ -232,8 +233,11 @@ void main() {
 					}
 				}
 				currentColor = mostColor;
+				break;
+			}
+			case 4:{ // mad
+				const float multiplier = 10.;
 
-			} else if (combineMode == 4) { // mean absolute deviation
 				float howmany = 0.;
 				// get mean
 				vec3 mean = vec3(0.);
@@ -249,11 +253,13 @@ void main() {
 				vec3 mad = vec3(0.);
 				for (int i = 0; i < grid.x * grid.y; i++) {
 					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
-					mad += abs(pixelColor.rgb - mean) * pixelColor.a; // absolute deviation
+					mad += abs(pixelColor.rgb - mean) * multiplier * pixelColor.a; // absolute deviation
 					howmany += pixelColor.a;
 				}
 				mad /= howmany;
 				currentColor = mad;
+				break;
+			}
 			}
 			color += vec4(currentColor, 1.);
 		} else { // not combine mosaic
