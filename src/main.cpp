@@ -681,6 +681,10 @@ void renderCircle(float x, float y, float r, CircleShader* circleShader, AABB vi
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	tris += 2;
 }
+char* dropPath = nullptr;
+void drop_callback(GLFWwindow* window, int count, const char** paths) {
+    dropPath = strdup(paths[0]);
+}
 int main(void) {
 	glfwInit();
 
@@ -703,6 +707,7 @@ int main(void) {
 	glfwSetCursorPosCallback(window, cursor_position_callback);
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 	glfwSetScrollCallback(window, scroll_callback);
+	glfwSetDropCallback(window, drop_callback);
 
 	// init glad
 	if (!gladLoadGLES2Loader((GLADloadproc)glfwGetProcAddress)) {
@@ -806,6 +811,12 @@ int main(void) {
 	int currentCombineModeItemNumber = 0;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
+		// drop image
+		if (dropPath != nullptr) {
+			rasterTextures[0] = make_shared<Texture>(dropPath);
+			dropPath = nullptr;
+		}
+
 		controls.mouseX = mouseX / (double)frameWidth * (double)(viewAabb.r - viewAabb.l) + viewAabb.l;
 		controls.mouseY = mouseY / (double)frameHeight * (double)(viewAabb.t - viewAabb.b) + viewAabb.b;
 		glm::vec2 transMouse = glm::vec2(controls.mouseX, controls.mouseY);
@@ -1278,6 +1289,8 @@ int main(void) {
 			transformQuad[2].y = two.y / two.z;
 			gridY++;
 		}
+
+		//ImGui::Text("Aspect ratio estimation: %f", );
 		float* p1[] = {&transformQuad[0].x, &transformQuad[0].y};
 		float* p2[] = {&transformQuad[1].x, &transformQuad[1].y};
 		float* p3[] = {&transformQuad[2].x, &transformQuad[2].y};
