@@ -26,8 +26,7 @@ uniform int combineMode;
 uniform bool showTransform;
 uniform ivec2 grid;
 uniform int gridNumber;
-uniform float asdasd1;
-uniform float asdasd2;
+uniform ivec2 rasterResolution;
 
 float lensDistortion(float r, float a, float b, float c, float d) {
 	return (a * r * r + b * r + c) * r * r + d * r;//6 multiplications
@@ -134,8 +133,12 @@ float getMedian(float[howman] arr, int n) {
 float modRange(float x, float a, float b) {
 	return mod(x - a, b - a) + a;
 }
+vec2 transformUvToGridCell(vec2 uv, int gridCellX, int gridCellY) {
+	uv.x = mix(float(gridCellX) / float(grid.x), float(gridCellX + 1) / float(grid.x), uv.x);
+	uv.y = mix(float(gridCellY) / float(grid.y), float(gridCellY + 1) / float(grid.y), uv.y);
+	return uv;
+}
 vec4 doPixel(vec2 uv) {
-
 	if (showTransform) {
 		vec3 transformed = vec3(uv, 1.);
 		transformed = trans * transformed;
@@ -154,11 +157,6 @@ vec4 doPixel(vec2 uv) {
 	vec4 texel = texture(tex, uv);
 	texel.a = texel.a < 0.5 ? 0. : 1.;
 	return texel;
-}
-vec4 doGridPixel(vec2 uv, int ecks, int why) {
-	uv.x = mix(float(ecks) / float(grid.x), float(ecks + 1) / float(grid.x), uv.x);
-	uv.y = mix(float(why) / float(grid.y), float(why + 1) / float(grid.y), uv.y);
-	return doPixel(uv);
 }
 
 void main() {
@@ -179,7 +177,7 @@ void main() {
 			case 0:{ // mean
 				float howmany = 0.;
 				for (int i = 0; i < grid.x * grid.y; i++) {
-					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					vec4 pixelColor = doPixel(transformUvToGridCell(uv, i % grid.x, i / grid.x));
 					currentColor += pixelColor.rgb * pixelColor.a;
 					howmany += pixelColor.a;
 				}
@@ -189,7 +187,7 @@ void main() {
 			case 1:{ // median
 				int howmanyMedian = 0;
 				for (int i = 0; i < grid.x * grid.y; i++) {
-					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					vec4 pixelColor = doPixel(transformUvToGridCell(uv, i % grid.x, i / grid.x));
 					if (pixelColor.a > 0.5) {
 						red[howmanyMedian] = pixelColor.r;
 						green[howmanyMedian] = pixelColor.g;
@@ -203,13 +201,13 @@ void main() {
 				break;
 			}
 			case 2:{ // single
-				currentColor = doGridPixel(uv, gridNumber % grid.x, gridNumber / grid.x).rgb;
+				currentColor = doPixel(transformUvToGridCell(uv, gridNumber % grid.x, gridNumber / grid.x)).rgb;
 				break;
 			}
 			case 3:{ // color palette
 				int[howmanycolors] currentColors = int[](0,0,0);
 				for (int i = 0; i < grid.x * grid.y; i++) {
-					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					vec4 pixelColor = doPixel(transformUvToGridCell(uv, i % grid.x, i / grid.x));
 
 					//get closest color
 					int closestColor = 0;
@@ -242,7 +240,7 @@ void main() {
 				// get mean
 				vec3 mean = vec3(0.);
 				for (int i = 0; i < grid.x * grid.y; i++) {
-					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					vec4 pixelColor = doPixel(transformUvToGridCell(uv, i % grid.x, i / grid.x));
 					mean += pixelColor.rgb * pixelColor.a;
 					howmany += pixelColor.a;
 				}
@@ -252,7 +250,7 @@ void main() {
 				// get mad
 				vec3 mad = vec3(0.);
 				for (int i = 0; i < grid.x * grid.y; i++) {
-					vec4 pixelColor = doGridPixel(uv, i % grid.x, i / grid.x);
+					vec4 pixelColor = doPixel(transformUvToGridCell(uv, i % grid.x, i / grid.x));
 					mad += abs(pixelColor.rgb - mean) * multiplier * pixelColor.a; // absolute deviation
 					howmany += pixelColor.a;
 				}
@@ -260,6 +258,16 @@ void main() {
 				currentColor = mad;
 				break;
 			}
+			/*case 5: // voronoi
+				float closestPixelSquareDistance = 0.;
+				int closestPixelGridIndex = -1;
+				for (int i = 0; i < grid.x * grid.y; i++) { // for each grid cell
+					float squareDistance;
+					currentColor += pixelColor.rgb * pixelColor.a;
+					howmany += pixelColor.a;
+				}
+				currentColor = doPixel(transformuv, closestPixelGridIndex % grid.x, closestPixelGridIndex / grid.x);
+				break;*/
 			}
 			color += vec4(currentColor, 1.);
 		} else { // not combine mosaic

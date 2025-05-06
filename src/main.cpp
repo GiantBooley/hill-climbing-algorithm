@@ -41,7 +41,7 @@ float square(float x) {
 class Texture {
 public:
 	int width, height, numChannels;
-	unsigned int id;
+	unsigned int id, slot;
 	Texture(const char* path) {
 		stbi_set_flip_vertically_on_load(true);
 		glGenTextures(1, &id);
@@ -139,7 +139,7 @@ class TriangleShader : public Shader {
 public:
 	unsigned int modelLocation, texLocation, colLocation, aLocation, bLocation, cLocation, dLocation, aabblLocation, aabbrLocation, aabbbLocation, aabbtLocation, ratioLocation,
 	aaResLocation, resolutionLocation, transLocation, binarySearchIterationsLocation, combineMosaicLocation, combineModeLocation, showTransformLocation, gridLocation, gridNumberLocation,
-	asdasd1Location, asdasd2Location;
+	rasterResolutionLocation;
 	TriangleShader(const char* vertexPath, const char* fragmentPath) : Shader(vertexPath, fragmentPath) {
 		modelLocation = glGetUniformLocation(ID, "modelMat");
 		texLocation = glGetUniformLocation(ID, "tex");
@@ -162,8 +162,7 @@ public:
 		showTransformLocation = glGetUniformLocation(ID, "showTransform");
 		gridLocation = glGetUniformLocation(ID, "grid");
 		gridNumberLocation = glGetUniformLocation(ID, "gridNumber");
-		asdasd1Location = glGetUniformLocation(ID, "asdasd1");
-		asdasd2Location = glGetUniformLocation(ID, "asdasd2");
+		rasterResolutionLocation = glGetUniformLocation(ID, "rasterResolution");
 	}
 };
 class DifferenceShader : public Shader {
@@ -356,8 +355,9 @@ Point transformPointFromTo(Point p, AABB from, AABB to) {
 }
 bool only = false;
 struct Raster {
-	int texId;
-	Raster() {
+	shared_ptr<Texture> texture;
+	Raster(shared_ptr<Texture> tex) {
+		texture = tex;
 	}
 };
 bool save = false;
@@ -524,7 +524,7 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glm::mat4 model = glm::mat4(1.f);
 		glUniformMatrix4fv(triangleShader->modelLocation, 1, GL_FALSE, glm::value_ptr(model));
 		glUniform3f(triangleShader->colLocation, 1.f, 1.f, 1.f);
-		glUniform1i(triangleShader->texLocation, (raster.texId % howManyRasterTextures) + 2);
+		glUniform1i(triangleShader->texLocation, raster.texture->slot);
 		glUniform1f(triangleShader->aLocation, a);
 		glUniform1f(triangleShader->bLocation, b);
 		glUniform1f(triangleShader->cLocation, c);
@@ -544,8 +544,7 @@ void renderRasters(TriangleShader* triangleShader, AABB aabb, int aaRes, int wid
 		glUniform1i(triangleShader->showTransformLocation, showTransform);
 		glUniform2i(triangleShader->gridLocation, gridX, gridY);
 		glUniform1i(triangleShader->gridNumberLocation, gridNumber);
-		glUniform1f(triangleShader->asdasd1Location, asdasd1);
-		glUniform1f(triangleShader->asdasd2Location, asdasd2);
+		glUniform2i(triangleShader->rasterResolutionLocation, raster.texture->width, raster.texture->height);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		tris += 2;
 	}
@@ -778,13 +777,14 @@ int main(void) {
 	double last = glfwGetTime();
 	float dt = 1.f;
 	for (int i = 0; i < 1; i++) {
-		rasters.push_back({});
+		rasters.push_back({rasterTextures[0]});
 	}
 
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 
 	for (int i = 0; i < howManyRasterTextures; i++) {
-		glActiveTexture(GL_TEXTURE2 + i);
+		glActiveTexture(GL_TEXTURE0 + i); // start at 0th texture
+		rasterTextures[i]->slot = i;
 		glBindTexture(GL_TEXTURE_2D, rasterTextures[i]->id);
 	}
 
@@ -807,7 +807,7 @@ int main(void) {
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
 	
 	// dropdown menu imgui
-	const char* combineModeItems[] = {"mean", "median", "single", "mode", "mad"};
+	const char* combineModeItems[] = {"mean", "median", "single", "mode", "mad", "voronoi"};
 	int currentCombineModeItemNumber = 0;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
@@ -938,124 +938,6 @@ int main(void) {
 		bool didSucceedMove = true;
 		int index = -1;
 		tris = 0;
-		/*if (playing) {
-			//find one to edit=====================================================
-			if (isRandom) {
-				index = randIntRange(0, rasters.size());
-			} else {
-				unsigned int largestDifferenceIndex = 0U;
-				double largestDifference = 0.;
-				for (unsigned int i = 0; i < rasters.size(); i++) {
-					if (rasters.at(i).difference >= 0.) {
-						if (rasters.at(i).difference > largestDifference) {
-							largestDifference = rasters.at(i).difference;
-							largestDifferenceIndex = i;
-						}
-					} else {
-						AABB aabb = rasters.at(i).aabb;
-						int w = (int)(aabb.r - aabb.l);
-						int h = (int)(aabb.t - aabb.b);
-						glActiveTexture(GL_TEXTURE1);
-						boundingBoxBuffer.resize(w, h);
-						differenceBuffer.resize(w, h);
-						glViewport(0, 0, w, h);
-						AABB screenSpaceAabb = {
-							aabb.l,
-							aabb.r,
-							aabb.b,
-							aabb.t
-						};
-
-						// render=====
-						glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-						renderRasters(&triangleShader, aabb, 1, w, h, howManyRasterTextures, i);
-						// get difference===
-						glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
-						renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceAabb);
-
-						rasters.at(i).difference = getAverageBufferColor(0, 0, w, h, 3);
-						if (rasters.at(i).difference > largestDifference) {
-							largestDifference = rasters.at(i).difference;
-							largestDifferenceIndex = i;
-							//if (save) cout << "highest diff: " << i << endl;
-						}
-						/*if (save) {
-							GLsizei stride = w * 3;
-							GLsizei bufferSize = stride * h;
-
-							glPixelStorei(GL_PACK_ALIGNMENT, 1);
-							glReadBuffer(GL_BACK);
-							stbi_flip_vertically_on_write(true);
-							unsigned char* bufferData = (unsigned char*)malloc(sizeof(unsigned char) * bufferSize);
-							glReadnPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, bufferSize, bufferData); // maybe change to rgba
-							string fileName = "dif" + to_string(i) + ".png";
-							stbi_write_png(fileName.c_str(), w, h, 3, bufferData, stride);
-							cout << "saved " << fileName << endl;
-							free(bufferData);
-						}*
-					}
-				}
-				//save = false;
-				index = largestDifferenceIndex;
-			}
-			current = &rasters.at(index);
-
-			Raster after = *current;
-			after.randomlyTransform();
-			AABB aabbBefore = current->aabb;
-			AABB aabbAfter = after.aabb;
-			AABB differenceAabb = getDoubleBoundingBoxBoundingBox(aabbBefore, aabbAfter);
-			AABB screenSpaceDifferenceAabb = {
-				differenceAabb.l,
-				differenceAabb.r,
-				differenceAabb.b,
-				differenceAabb.t
-			};
-
-
-			int w = (int)(differenceAabb.r - differenceAabb.l);
-			int h = (int)(differenceAabb.t - differenceAabb.b);
-
-			//resize
-			glActiveTexture(GL_TEXTURE1);
-			boundingBoxBuffer.resize(w, h);
-			differenceBuffer.resize(w, h);
-			glViewport(0, 0, w, h);
-
-			// render before transform===================================================================================================================
-			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, 1, w, h, howManyRasterTextures, index);
-			// get difference==================================================================================================
-			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
-			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
-
-			double averageDifferenceBefore = getAverageBufferColor(0, 0, w, h, 3);
-
-			Raster before = *current;
-			*current = after;
-
-			// render after transform===================================================================================================================
-			glBindFramebuffer(GL_FRAMEBUFFER, boundingBoxBuffer.framebuffer);
-			renderRasters(&triangleShader, differenceAabb, 1, w, h, howManyRasterTextures, index);
-			// get difference==================================================================================================
-			glBindFramebuffer(GL_FRAMEBUFFER, differenceBuffer.framebuffer);
-			renderDifference(&differenceShader, boundingBoxBuffer.textureColorBuffer, screenSpaceDifferenceAabb);
-
-			double averageDifferenceAfter = getAverageBufferColor(0, 0, w, h, 3);
-
-			if (averageDifferenceAfter > averageDifferenceBefore && !ignoreDifference) {
-				*current = before;
-				averageDifferenceAfter = averageDifferenceBefore;
-				didSucceedMove = false;
-			} else {
-				for (Raster& raster : rasters) {
-					if (aabbIntersect(raster.aabb, aabbBefore) || aabbIntersect(raster.aabb, aabbAfter)) {
-						raster.difference = -1.;
-					}
-				}
-			}
-			iterations++;
-		}*/
 
 		//init imgui frame render frame==================================================================
 		ImGui_ImplOpenGL3_NewFrame();
@@ -1223,8 +1105,6 @@ int main(void) {
 		ImGui::SliderFloat("c", &c, 0.f, 0.2f);
 		//d = 1.f - (a + b + c);
 		ImGui::SliderFloat("d", &d, -1.f, 1.f);
-		ImGui::SliderFloat("asdasd1", &asdasd1, 0.f, 1.f);
-		ImGui::SliderFloat("asdasd2", &asdasd2, 0.f, 1.f);
 
 		ImGui::Checkbox("do", &ddo);
 		/*float* them = glm::value_ptr(trans);
