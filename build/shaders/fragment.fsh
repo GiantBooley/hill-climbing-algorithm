@@ -129,6 +129,9 @@ float getMedian(float[howman] arr, int n) {
 	median(arr, 0, n - 1, n / 2, a, b);
 	return (n % 2 == 1) ? b : (a + b) * 0.5;
 }
+float sqrDistance(vec2 a, vec2 b) {
+	return (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+}
 
 float modRange(float x, float a, float b) {
 	return mod(x - a, b - a) + a;
@@ -138,21 +141,26 @@ vec2 transformUvToGridCell(vec2 uv, int gridCellX, int gridCellY) {
 	uv.y = mix(float(gridCellY) / float(grid.y), float(gridCellY + 1) / float(grid.y), uv.y);
 	return uv;
 }
-vec4 doPixel(vec2 uv) {
+vec2 transformUv(vec2 uv) {
 	if (showTransform) {
 		vec3 transformed = vec3(uv, 1.);
 		transformed = trans * transformed;
 		uv = transformed.xy / transformed.z;
 	}
 
+	// lens distortion
 	uv = uv * 2. - 1.;
 	uv.x *= ratio;
 	float r = length(uv);
 	r = inverseLensDistortion(r, a, b, c, d);
 	uv = normalize(uv) * r;
-
 	uv.x /= ratio;
 	uv = (uv + 1.) * 0.5;
+
+	return uv;
+}
+vec4 doPixel(vec2 uv) {
+	uv = transformUv(uv);
 
 	vec4 texel = texture(tex, uv);
 	texel.a = texel.a < 0.5 ? 0. : 1.;
@@ -164,6 +172,8 @@ void main() {
 	float w = 1. / resolution.x / float(aaRes);
 	float h = 1. / resolution.y / float(aaRes);
 	vec4 color = vec4(0.);
+
+	vec2 rasterResolutionFloat = vec2(float(rasterResolution.x), float(rasterResolution.y));
 	//aa
 	for (int aa = 0; aa < aaRes * aaRes; aa++) {
 		vec2 youvee = texcoord + vec2(w * float(aa % aaRes), h * float(aa / aaRes));
@@ -258,16 +268,20 @@ void main() {
 				currentColor = mad;
 				break;
 			}
-			/*case 5: // voronoi
+			case 5: // voronoi
 				float closestPixelSquareDistance = 0.;
 				int closestPixelGridIndex = -1;
 				for (int i = 0; i < grid.x * grid.y; i++) { // for each grid cell
-					float squareDistance;
-					currentColor += pixelColor.rgb * pixelColor.a;
-					howmany += pixelColor.a;
+					vec2 pixelUv = transformUv(transformUvToGridCell(uv, i % grid.x, i / grid.x));
+					vec2 roundedPixelUv = (floor(pixelUv * rasterResolutionFloat) + 0.5) / rasterResolutionFloat;
+					float squareDistance = sqrDistance(pixelUv, roundedPixelUv);
+					if (squareDistance < closestPixelSquareDistance || closestPixelGridIndex == -1) {
+						closestPixelSquareDistance = squareDistance;
+						closestPixelGridIndex = i;
+					}
 				}
-				currentColor = doPixel(transformuv, closestPixelGridIndex % grid.x, closestPixelGridIndex / grid.x);
-				break;*/
+				currentColor = doPixel(transformUvToGridCell(uv, closestPixelGridIndex % grid.x, closestPixelGridIndex / grid.x)).rgb;
+				break;
 			}
 			color += vec4(currentColor, 1.);
 		} else { // not combine mosaic

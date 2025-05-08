@@ -55,6 +55,7 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 		unsigned char *data = stbi_load(path, &width, &height, &numChannels, 0);
 		cout << "[INFO] Texture loaded: \"" << path << "\" color channels: " << numChannels << endl;
 		if (data) {
@@ -739,7 +740,7 @@ int main(void) {
 	CircleShader circleShader{"shaders/vertex.vsh", "shaders/circle.fsh"};
 
 	shared_ptr<Texture> rasterTextures[] = {
-		make_shared<Texture>("../807/DSC00159.png")
+		make_shared<Texture>("images/IMG_7843-2nointerpolatoin.jpg")
 	};
 	int howManyRasterTextures = sizeof(rasterTextures) / sizeof(shared_ptr<Texture>);
 
@@ -807,7 +808,7 @@ int main(void) {
 	AABB viewAabb = {0.f, 1.f, 0.f, 1.f};
 	
 	// dropdown menu imgui
-	const char* combineModeItems[] = {"mean", "median", "single", "mode", "mad", "voronoi"};
+	const char* combineModeItems[] = {"mean (best for noise)", "median (best for single differences)", "single", "mode", "mad", "voronoi (best for low res without noise)"};
 	int currentCombineModeItemNumber = 0;
 	//llooop
 	while (!glfwWindowShouldClose(window)) {
